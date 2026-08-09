@@ -44,58 +44,138 @@ Potentially millions of travelers across regions.
 
 ---
 
-# 2da Actividad — Build the Monolith Core
+# 2da Actividad — Build the Monolith Core (Sesión II)
 
-## 🏛️ Arquitectura actual (Sesión II): Layered Monolith
+Se construyó un **monolito en capas** puro (separado por rol técnico:
+presentation → service → repository → domain), sin separación por dominio
+de negocio todavía. Ese fue el punto de partida intencional — ver el
+refactor hacia dominios en la Sesión III, más abajo.
 
-> **Importante:** en esta sesión el proyecto es un **monolito en capas** puro
-> (separado por rol técnico: presentation → service → repository → domain),
-> **no** un monolito modular. La separación por dominio de negocio
-> (`booking`, `payment`, `user`, `notification`, `search` como paquetes aislados)
-> es justamente el refactor que corresponde a la **Sesión III** (Structural
-> Variation Styles → Bounded Contexts), por lo que todavía no está implementado.
-
-```
-quickstay-hotel-platform/
-├── backend/                          Spring Boot (Java 17, Gradle Groovy)
-│   └── src/main/java/com/quickstay/
-│       ├── controller/     RoomSearchController, ReservationController
-│       ├── service/        RoomSearchService, ReservationService
-│       ├── repository/     HotelRepository, RoomRepository,
-│       │                   GuestRepository, ReservationRepository
-│       ├── domain/         Hotel, Room, Guest, Reservation (+ enums)
-│       ├── dto/             Request/Response records
-│       └── exception/       GlobalExceptionHandler, RoomNotAvailableException
-│
-├── frontend/quickstay-web/           Angular 18 (standalone components)
-│   └── src/app/
-│       ├── core/
-│       │   ├── models/       room.model.ts
-│       │   └── services/     RoomSearchService, ReservationService
-│       └── features/
-│           └── room-search/  Búsqueda + reserva (componente único)
-│
-├── infra/
-│   └── docker-compose.yml    PostgreSQL 16
-```
-
-### Alcance funcional implementado (MVP Sesión II)
+### Alcance funcional (sigue vigente)
 - ✅ Búsqueda de disponibilidad por ciudad, fechas y precio máximo
 - ✅ Reserva de habitación con validación de solapamiento (anti-overbooking
   básico, dentro de una única transacción)
 - ✅ Cancelación de reserva
 - ✅ Alta automática de huésped al reservar
 - ⏳ Pago online, loyalty, promociones, check-in digital, notificaciones,
-  integración con OTAs → planificado para sesiones posteriores (ver roadmap
-  más abajo)
+  integración con OTAs → planificado para sesiones posteriores
+
+---
+
+# 3ra Actividad — Structural Variation Styles (Sesión III)
+
+**Actividades:** *Conduct an architectural review of the initial monolith*
++ *Refactor the code into strict domain packages/namespaces*.
+
+Ver el detalle completo de la revisión y las decisiones de diseño en
+[`docs/session-03-evaluation.md`](docs/session-03-evaluation.md).
+
+## 🏛️ Arquitectura actual: Modular Monolith (Bounded Contexts)
+
+El código se reorganizó de capas técnicas a **paquetes por dominio de
+negocio**. Sigue siendo un único deployable con una única base de datos
+(todavía no es microservicios), pero cada dominio ya es internamente
+cohesivo y sus límites están explícitos en el código.
+
+```
+quickstay-hotel-platform/
+├── backend/                          Spring Boot (Java 17, Gradle Groovy)
+│   └── src/main/java/com/quickstay/
+│       ├── inventory/                Bounded Context: Hoteles y habitaciones
+│       │   ├── domain/       Hotel, Room, HotelOwnershipType
+│       │   ├── repository/   HotelRepository, RoomRepository
+│       │   ├── service/      RoomSearchService
+│       │   ├── web/          RoomSearchController
+│       │   └── dto/          RoomSearchRequest, RoomAvailabilityResponse
+│       │
+│       ├── booking/                  Bounded Context: Huéspedes y reservas
+│       │   ├── domain/       Guest, Reservation, ReservationStatus
+│       │   ├── repository/   GuestRepository, ReservationRepository
+│       │   ├── service/      ReservationService
+│       │   ├── web/          ReservationController
+│       │   ├── dto/          ReservationRequest, ReservationResponse
+│       │   └── exception/    RoomNotAvailableException
+│       │
+│       └── shared/                   Cross-cutting
+│           └── exception/    GlobalExceptionHandler
+│
+├── frontend/quickstay-web/           Angular 18 (standalone components) — sin cambios
+├── infra/                            docker-compose (PostgreSQL) — sin cambios
+└── docs/
+    ├── session-02-evaluation.md
+    └── session-03-evaluation.md      Revisión arquitectónica + justificación del refactor
+```
+
+### Cambio de diseño clave
+`Reservation` ya **no** mapea `Room` como relación JPA (`@ManyToOne`) —
+ahora guarda solo `roomId: UUID`. Esto evita que el dominio Booking cargue
+por accidente el grafo de entidades de Inventory, preservando el límite del
+Bounded Context aunque ambas tablas sigan en la misma base de datos física.
+Detalle completo en `docs/session-03-evaluation.md`.
 
 ### Principios de esta sesión
-- **Un solo deployable**: todo el backend corre en un único proceso Spring Boot.
-- **Comunicación entre capas por invocación directa** (no eventos ni mensajería
-  todavía — eso es Sesión IV).
-- **Base de datos única y compartida**, transacciones ACID simples (`@Transactional`).
-- **API First**: el backend expone JSON vía REST; el frontend Angular lo
-  consume con `HttpClient`.
+- **Bounded Contexts explícitos en el código**, no solo en la cabeza del
+  equipo.
+- **Un solo deployable y una sola base de datos** — la modularización es de
+  código, todavía no de infraestructura (eso empieza en Sesión VI).
+- Acoplamiento cross-dominio que queda **documentado como decisión
+  consciente**, no eliminado del todo (se resuelve con eventos en Sesión IV
+  y CQRS en Sesión VIII).
+
+---
+
+# 4ta Actividad — Enterprise Integration & Messaging (Sesión IV)
+
+**Actividades:** *Map Out Domain Events* + *Wire an In-Memory Event Bus* +
+*Refactor the event bus to use an external message broker (RabbitMQ)*.
+
+Ver el detalle completo en:
+- [`docs/session-04-domain-events.md`](docs/session-04-domain-events.md) — catálogo de eventos
+- [`docs/session-04-evaluation.md`](docs/session-04-evaluation.md) — evaluación arquitectónica
+
+## 🔀 De llamada síncrona a mensajería asíncrona
+
+Nace el Bounded Context **Notification**. Booking ya no lo conocería aunque
+quisiera: se comunican exclusivamente a través de RabbitMQ.
+
+```
+booking/
+├── event/                 Domain events internos (in-memory)
+│   ├── ReservationConfirmedEvent
+│   └── ReservationCancelledEvent
+└── messaging/              Infraestructura: traduce domain event → mensaje externo
+    ├── ReservationIntegrationEvent   (contrato de mensaje, wire format)
+    ├── BookingMessagingConfig        (declara el exchange RabbitMQ)
+    └── ReservationEventPublisher     (@TransactionalEventListener AFTER_COMMIT)
+
+notification/
+└── messaging/
+    ├── ReservationEventMessage       (copia propia del contrato — sin importar booking)
+    ├── NotificationMessagingConfig   (declara su propia cola + binding)
+    └── ReservationNotificationListener (@RabbitListener — logea la "notificación")
+
+shared/
+└── messaging/
+    └── RabbitMqConfig                (converter JSON compartido)
+```
+
+### Flujo
+1. `ReservationService.reserve()` guarda la reserva y publica
+   `ReservationConfirmedEvent` en memoria (bus de Spring).
+2. `ReservationEventPublisher` escucha ese evento, pero solo actúa
+   **después de que la transacción confirma** (`AFTER_COMMIT`) — si la
+   reserva falla, nunca sale ningún mensaje.
+3. El mensaje llega a RabbitMQ, al exchange `quickstay.reservation-events`.
+4. `ReservationNotificationListener` (dominio Notification, sin ningún
+   import de `booking`) lo consume de su propia cola y "envía" la
+   notificación (por ahora, solo logging — el canal real de email/SMS
+   queda fuera de alcance de este módulo).
+
+### Por qué el cliente HTTP no espera la notificación
+La reserva se confirma y responde `201 Created` de inmediato. La
+notificación llega con **consistencia eventual** — normalmente milisegundos
+después, pero desacoplada del tiempo de respuesta de la API. Detalle
+completo del trade-off en `docs/session-04-evaluation.md`.
 
 ---
 
@@ -103,7 +183,8 @@ quickstay-hotel-platform/
 
 | Capa | Tecnología |
 |------|------------|
-| **Backend** | Java 17, Spring Boot 3.3.2, Gradle 8.8 (Groovy DSL), Spring Data JPA, Flyway, Lombok, PostgreSQL driver |
+| **Backend** | Java 17, Spring Boot 3.3.2, Gradle 8.8 (Groovy DSL), Spring Data JPA, Spring AMQP, Flyway, Lombok, PostgreSQL driver |
+| **Mensajería** | RabbitMQ 3 (management UI incluida) |
 | **Frontend** | Angular 18 (standalone components), TypeScript, SCSS |
 | **Base de datos** | PostgreSQL 16 (Docker) |
 | **Gestión de dependencias** | Gradle (backend) & npm (frontend) |
@@ -142,81 +223,121 @@ graph TD
 ```
 
 > Los sistemas externos (OTAs, pagos, notificaciones) representan el estado
-> **objetivo** de QuickStay. En Sesión II todavía no hay integraciones reales
-> con ellos — se agregan en sesiones posteriores (IV en adelante).
+> **objetivo** de QuickStay. Estado real a Sesión IV: **Notification** ya
+> existe como Bounded Context interno y consume eventos de Booking de forma
+> asíncrona (ver Nivel 3), pero el canal final hacia el huésped (envío real
+> de email/SMS/push, el sistema externo de este diagrama) todavía es un
+> stub que solo loguea — no hay integración real con un proveedor. OTAs y
+> Proveedores de Pago siguen sin integración alguna (roadmap Sesión V+).
 
-## 📦 Nivel 2: Diagrama de Contenedores
+## 📦 Nivel 2: Diagrama de Contenedores (Sesión IV)
 
 ```mermaid
 graph TD
     user["👤 Usuario / Cliente<br/><i>[Person]</i>"]
 
-    subgraph SystemBoundary["QuickStay Hotel System — Sesión II"]
+    subgraph SystemBoundary["QuickStay Hotel System"]
         frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda y reserva de habitaciones."]
-        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Layered Monolith."]
+        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith (Inventory, Booking, Notification)."]
         database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations.")]
+        broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events."}}
     end
 
     user -->|"Usa [HTTP]"| frontend
     frontend -->|"Consume REST API [JSON/HTTP]"| backend
     backend -->|"JDBC"| database
+    backend -->|"Publica eventos [AMQP]"| broker
+    broker -->|"Entrega eventos [AMQP]"| backend
 
     classDef person fill:#08427b,color:#fff,stroke:#073b6f,stroke-width:2px;
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
+    classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
 
     class user person;
     class frontend,backend container;
     class database db;
+    class broker broker;
 ```
 
-## 🧩 Nivel 3: Diagrama de Componentes — estado real vs roadmap
+> Nota: el backend aparece publicando **y** consumiendo del broker porque,
+> al ser todavía un monolito, tanto Booking (publisher) como Notification
+> (consumer) corren dentro del mismo proceso/container. Cuando Notification
+> se extraiga a su propio servicio (Sesión VI+), este diagrama pasaría a
+> tener dos containers de aplicación distintos conectados por RabbitMQ, en
+> vez de uno solo hablándose a sí mismo.
+
+## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging (Sesión IV)
 
 ```mermaid
 graph TD
     frontend["📱 QuickStay Frontend<br/><i>[Angular]</i>"]
     database[("🐘 PostgreSQL")]
+    broker{{"🐰 RabbitMQ<br/>exchange: quickstay.reservation-events"}}
 
-    subgraph Backend["⚙️ QuickStay Backend — Layered Monolith"]
-        controller["Controller Layer<br/><i>[Presentation]</i><br/>RoomSearchController, ReservationController"]
-        service["Service Layer<br/><i>[Business Logic]</i><br/>RoomSearchService, ReservationService"]
-        repository["Repository Layer<br/><i>[Spring Data JPA]</i><br/>Hotel/Room/Guest/ReservationRepository"]
-        domain["Domain Layer<br/><i>[Entities]</i><br/>Hotel, Room, Guest, Reservation"]
+    subgraph Inventory["📦 Inventory Bounded Context"]
+        invWeb["RoomSearchController"]
+        invService["RoomSearchService"]
+        invRepo["Hotel/RoomRepository"]
+        invDomain["Hotel, Room"]
     end
 
-    subgraph Roadmap["🗺️ Módulos planificados (sesiones futuras, aún no implementados)"]
-        paymentMod["Payment Module<br/><i>Sesión IV/V</i>"]
-        notifMod["Notification Module<br/><i>Sesión IV — eventos</i>"]
+    subgraph Booking["📅 Booking Bounded Context"]
+        bookWeb["ReservationController"]
+        bookService["ReservationService"]
+        bookEvent["ApplicationEventPublisher<br/>(in-memory bus)"]
+        bookPublisher["ReservationEventPublisher<br/>(AFTER_COMMIT)"]
+        bookRepo["Guest/ReservationRepository"]
+        bookDomain["Guest, Reservation (roomId: UUID)"]
+    end
+
+    subgraph Notification["✉️ Notification Bounded Context"]
+        notifListener["ReservationNotificationListener<br/>@RabbitListener"]
+    end
+
+    subgraph Roadmap["🗺️ Bounded Contexts planificados (sesiones futuras)"]
+        paymentMod["Payment<br/><i>Sesión IV/V</i>"]
         loyaltyMod["Loyalty / Promotions<br/><i>Sesión VI/VIII</i>"]
         checkinMod["Digital Check-in<br/><i>Sesión VII</i>"]
     end
 
-    frontend -->|"Busca disponibilidad"| controller
-    frontend -->|"Crea/cancela reservas"| controller
-    controller --> service
-    service --> repository
-    repository --> domain
-    repository -->|"Spring Data JPA / SQL"| database
+    frontend -->|"Busca disponibilidad"| invWeb
+    frontend -->|"Crea/cancela reservas"| bookWeb
 
-    service -.->|"futuro: evento ReservationConfirmed"| notifMod
-    service -.->|"futuro: solicita cobro"| paymentMod
+    invWeb --> invService --> invRepo --> invDomain
+    bookWeb --> bookService --> bookRepo --> bookDomain
+
+    invRepo -->|"JDBC"| database
+    bookRepo -->|"JDBC"| database
+
+    bookService -.->|"lee: ¿existe la room?<br/>(único acoplamiento síncrono)"| invRepo
+    invRepo -.->|"subquery cross-domain<br/>(acoplamiento pendiente, ver docs)"| bookDomain
+
+    bookService -->|"1. publishEvent()"| bookEvent
+    bookEvent -->|"2. AFTER_COMMIT"| bookPublisher
+    bookPublisher -->|"3. convertAndSend()"| broker
+    broker -->|"4. @RabbitListener"| notifListener
+
+    bookService -.->|"futuro: solicita cobro"| paymentMod
 
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
     classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
+    classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
     classDef future fill:#dddddd,color:#555,stroke:#999999,stroke-width:1px,stroke-dasharray: 5 5;
 
     class frontend container;
     class database db;
-    class controller,service,repository,domain component;
-    class paymentMod,notifMod,loyaltyMod,checkinMod future;
+    class broker broker;
+    class invWeb,invService,invRepo,invDomain,bookWeb,bookService,bookEvent,bookPublisher,bookRepo,bookDomain,notifListener component;
+    class paymentMod,loyaltyMod,checkinMod future;
 ```
 
 ---
 
 ## 🚀 Cómo levantar el entorno local
 
-### 1. Base de datos (PostgreSQL vía Docker)
+### 1. Infraestructura (PostgreSQL + RabbitMQ vía Docker)
 
 > Nota: si ya tenés un PostgreSQL nativo corriendo en tu máquina (Windows/Mac),
 > puede ocupar el puerto 5432. Este proyecto usa el puerto **5433** en el host
@@ -225,11 +346,16 @@ graph TD
 ```bash
 cd infra
 docker compose up -d
-docker ps   # confirmar que "quickstay-postgres" está Up
+docker ps   # confirmar que quickstay-postgres, pgadmin y quickstay-rabbitmq están Up
 ```
 
-Credenciales (definidas en `docker-compose.yml`): DB `quickstay`, user/pass
-`quickstay`/`quickstay`.
+Credenciales:
+- PostgreSQL: DB `quickstay`, user/pass `quickstay`/`quickstay` (puerto 5433)
+- RabbitMQ: user/pass `quickstay`/`quickstay` (puerto 5672 AMQP, 15672 management UI)
+
+Management UI de RabbitMQ: `http://localhost:15672` — útil para ver el
+exchange `quickstay.reservation-events` y la cola
+`notification.reservation-events` en tiempo real.
 
 ### 2. Backend
 
@@ -285,6 +411,9 @@ Se levanta en `http://localhost:4200`, ya conectado al backend
 | `FATAL: la autentificación password falló` | Volumen de Postgres viejo con otras credenciales, o conflicto de puerto con un Postgres nativo | `docker compose down -v && docker compose up -d` |
 | `Unable to determine Dialect without JDBC metadata` | Backend no logra conectar a la DB (mensaje real de Hibernate queda oculto) | Verificar `docker ps` y el puerto en `application.yml` |
 | Barra de Gradle se queda en 80-90% | Comportamiento normal de `bootRun` — el proceso queda vivo sirviendo peticiones | Buscar `Started QuickstayApplication` en el log |
+| `blocked by CORS policy` en la consola del navegador, request marcado `net::ERR_FAILED` (pero sin error en el log del backend) | El browser bloquea la respuesta porque el backend no declara `http://localhost:4200` como origen permitido | Ya resuelto vía `shared/config/CorsConfig.java` — si cambiás el puerto del frontend, actualizá `allowedOrigins` ahí |
+| Backend no arranca: `Connection refused` apuntando a `5672` | RabbitMQ no está corriendo | `docker ps` y confirmar `quickstay-rabbitmq` está `Up`; si no, `docker compose up -d` desde `infra/` |
+| No aparece el log `[NOTIFICATION] Enviando email...` tras reservar | El listener no está conectado a la cola, o el mensaje no llegó | Revisar `http://localhost:15672` → pestaña *Queues* → `notification.reservation-events`: si el mensaje quedó "Ready" sin consumir, el backend probablemente no levantó bien el `@RabbitListener` (ver log al arrancar) |
 
 ---
 
@@ -299,6 +428,45 @@ git push -u origin session-02-layered-monolith
 git checkout main
 git merge --no-ff session-02-layered-monolith -m "merge: session 02 layered monolith core"
 git tag -a v0.2-layered-monolith -m "Session II: Layered Monolith Core"
+git push origin main --tags
+```
+
+Sesión III:
+
+```bash
+git checkout -b session-03-modular-monolith
+git add .
+git commit -m "refactor: reorganize into inventory/booking bounded contexts
+
+- move layered packages into domain-oriented packages (inventory, booking)
+- decouple Reservation from Room JPA relation, use roomId reference instead
+- document remaining cross-domain coupling in docs/session-03-evaluation.md"
+git push -u origin session-03-modular-monolith
+
+git checkout main
+git merge --no-ff session-03-modular-monolith -m "merge: session 03 modular monolith (bounded contexts)"
+git tag -a v0.3-modular-monolith -m "Session III: Modular Monolith - Bounded Contexts"
+git push origin main --tags
+```
+
+Sesión IV:
+
+```bash
+git checkout -b session-04-messaging
+git add .
+git commit -m "feat: event-driven communication between Booking and Notification
+
+- add ReservationConfirmedEvent/ReservationCancelledEvent domain events
+- wire in-memory event bus via Spring ApplicationEventPublisher
+- add RabbitMQ (docker-compose) and Spring AMQP
+- refactor: publish integration events to RabbitMQ AFTER_COMMIT
+- new Notification bounded context consuming via @RabbitListener
+- docs: domain event catalog + eventual consistency evaluation"
+git push -u origin session-04-messaging
+
+git checkout main
+git merge --no-ff session-04-messaging -m "merge: session 04 enterprise integration & messaging"
+git tag -a v0.4-messaging -m "Session IV: Enterprise Integration & Messaging"
 git push origin main --tags
 ```
 

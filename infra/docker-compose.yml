@@ -18,5 +18,14 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: quickstay-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: quickstay
+      RABBITMQ_DEFAULT_PASS: quickstay
+    ports:
+      - "5672:5672"   # AMQP (usado por el backend)
+      - "15672:15672" # Management UI: http://localhost:15672
 volumes:
   pgdata:
