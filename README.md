@@ -151,14 +151,14 @@ y CQRS en Sesión VIII).
 
 ```mermaid
 graph TD
-    traveler\["👤 Viajero / Cliente<br/><i>\[Persona]</i><br/>Busca habitaciones, reserva, paga online, gestiona check-in/out y solicita servicios."]
-    hotelStaff\["👤 Personal del Hotel<br/><i>\[Persona]</i><br/>Atiende solicitudes de room service, limpieza y mantenimiento."]
+    traveler["👤 Viajero / Cliente<br/><i>[Persona]</i><br/>Busca habitaciones, reserva, paga online, gestiona check-in/out y solicita servicios."]
+    hotelStaff["👤 Personal del Hotel<br/><i>[Persona]</i><br/>Atiende solicitudes de room service, limpieza y mantenimiento."]
 
-    quickstay\["🏨 QuickStay Platform<br/><i>\[Sistema de Software]</i><br/>Gestiona disponibilidad, reservas, cancelaciones, fidelidad, promociones y solicitudes de huéspedes."]
+    quickstay["🏨 QuickStay Platform<br/><i>[Sistema de Software]</i><br/>Gestiona disponibilidad, reservas, cancelaciones, fidelidad, promociones y solicitudes de huéspedes."]
 
-    otas\["🌐 Agencias de Viajes Externas (OTAs)<br/><i>\[Sistema Externo]</i><br/>Consultan disponibilidad y reservan en hoteles franquiciados o propios."]
-    paymentSystem\["💳 Proveedores de Pago<br/><i>\[Sistema Externo]</i><br/>Pasarelas de pago para transacciones en múltiples monedas."]
-    notificationService\["✉️ Servicio de Notificaciones<br/><i>\[Sistema Externo]</i><br/>Email/SMS/Push para confirmaciones y alertas."]
+    otas["🌐 Agencias de Viajes Externas (OTAs)<br/><i>[Sistema Externo]</i><br/>Consultan disponibilidad y reservan en hoteles franquiciados o propios."]
+    paymentSystem["💳 Proveedores de Pago<br/><i>[Sistema Externo]</i><br/>Pasarelas de pago para transacciones en múltiples monedas."]
+    notificationService["✉️ Servicio de Notificaciones<br/><i>[Sistema Externo]</i><br/>Email/SMS/Push para confirmaciones y alertas."]
 
     traveler -->|"Busca, reserva, paga, check-in digital, solicita servicios"| quickstay
     hotelStaff -->|"Gestiona solicitudes operativas"| quickstay
@@ -183,16 +183,16 @@ graph TD
 
 ```mermaid
 graph TD
-    user\["👤 Usuario / Cliente<br/><i>\[Person]</i>"]
+    user["👤 Usuario / Cliente<br/><i>[Person]</i>"]
 
-    subgraph SystemBoundary\["QuickStay Hotel System — Sesión III"]
-        frontend\["📱 QuickStay Frontend<br/><i>\[Container: Angular 18]</i><br/>Búsqueda y reserva de habitaciones."]
-        backend\["⚙️ QuickStay Backend<br/><i>\[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith."]
-        database\[("🐘 PostgreSQL<br/><i>\[ContainerDb]</i><br/>hotels, rooms, guests, reservations.")]
+    subgraph SystemBoundary["QuickStay Hotel System — Sesión II"]
+        frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda y reserva de habitaciones."]
+        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Layered Monolith."]
+        database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations.")]
     end
 
-    user -->|"Usa \[HTTP]"| frontend
-    frontend -->|"Consume REST API \[JSON/HTTP]"| backend
+    user -->|"Usa [HTTP]"| frontend
+    frontend -->|"Consume REST API [JSON/HTTP]"| backend
     backend -->|"JDBC"| database
 
     classDef person fill:#08427b,color:#fff,stroke:#073b6f,stroke-width:2px;
@@ -208,28 +208,28 @@ graph TD
 
 ```mermaid
 graph TD
-    frontend\["📱 QuickStay Frontend<br/><i>\[Angular]</i>"]
-    database\[("🐘 PostgreSQL")]
+    frontend["📱 QuickStay Frontend<br/><i>[Angular]</i>"]
+    database[("🐘 PostgreSQL")]
 
-    subgraph Inventory\["📦 Inventory Bounded Context"]
-        invWeb\["RoomSearchController"]
-        invService\["RoomSearchService"]
-        invRepo\["Hotel/RoomRepository"]
-        invDomain\["Hotel, Room"]
+    subgraph Inventory["📦 Inventory Bounded Context"]
+        invWeb["RoomSearchController"]
+        invService["RoomSearchService"]
+        invRepo["Hotel/RoomRepository"]
+        invDomain["Hotel, Room"]
     end
 
-    subgraph Booking\["📅 Booking Bounded Context"]
-        bookWeb\["ReservationController"]
-        bookService\["ReservationService"]
-        bookRepo\["Guest/ReservationRepository"]
-        bookDomain\["Guest, Reservation (roomId: UUID)"]
+    subgraph Booking["📅 Booking Bounded Context"]
+        bookWeb["ReservationController"]
+        bookService["ReservationService"]
+        bookRepo["Guest/ReservationRepository"]
+        bookDomain["Guest, Reservation (roomId: UUID)"]
     end
 
-    subgraph Roadmap\["🗺️ Bounded Contexts planificados (sesiones futuras)"]
-        paymentMod\["Payment<br/><i>Sesión IV/V</i>"]
-        notifMod\["Notification<br/><i>Sesión IV — eventos</i>"]
-        loyaltyMod\["Loyalty / Promotions<br/><i>Sesión VI/VIII</i>"]
-        checkinMod\["Digital Check-in<br/><i>Sesión VII</i>"]
+    subgraph Roadmap["🗺️ Bounded Contexts planificados (sesiones futuras)"]
+        paymentMod["Payment<br/><i>Sesión IV/V</i>"]
+        notifMod["Notification<br/><i>Sesión IV — eventos</i>"]
+        loyaltyMod["Loyalty / Promotions<br/><i>Sesión VI/VIII</i>"]
+        checkinMod["Digital Check-in<br/><i>Sesión VII</i>"]
     end
 
     frontend -->|"Busca disponibilidad"| invWeb
