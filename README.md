@@ -195,12 +195,6 @@ completo del trade-off en `docs/session-04-evaluation.md`.
 
 # 🏨 Arquitectura de Software (C4 Model)
 
-Los diagramas C4 se mantienen con el mismo lenguaje visual de las sesiones
-anteriores: **azul para personas/sistemas/contenedores propios, gris para
-sistemas externos o componentes futuros, azul oscuro para persistencia y
-naranja para RabbitMQ**. La diferencia es que ahora reflejan el estado real
-hasta **Sesión V**, incluyendo Payment y el Saga Orchestrator.
-
 ## 📌 Nivel 1: Diagrama de Contexto
 
 ```mermaid
@@ -789,15 +783,6 @@ fue exitosa antes de confirmar la reserva. REST mantiene esa semántica síncron
 y hace visible el nuevo límite de despliegue. RabbitMQ continúa reservado para
 la integración asíncrona de notificaciones.
 
-### ¿Y CQRS?
-
-La competencia de la unidad menciona CQRS, pero la actividad práctica de esta
-sesión exige específicamente **extraer un dominio con deployment y base
-aislados**. No se introduce CQRS artificialmente donde el perfil de carga no lo
-justifica. La separación física deja preparado el terreno para que una futura
-optimización de lecturas pueda usar un modelo/query store independiente si la
-telemetría real demuestra esa necesidad.
-
 ### Trade-off
 
 **Ganancia:** aislamiento de datos, despliegue independiente y posibilidad de
@@ -810,7 +795,6 @@ despliegue, observabilidad adicional y nuevos puntos de fallo.
 
 | Sesión | Arquitectura / foco | Documentación |
 |---|---|---|
-| II | Layered Monolith | `docs/session-02-evaluation.md` |
 | III | Modular Monolith + Bounded Contexts | `docs/session-03-evaluation.md` |
 | IV | Enterprise Integration & Messaging | `docs/session-04-domain-events.md` · `docs/session-04-evaluation.md` |
 | V | Service-Based & Orchestrated Styles — Saga | `docs/session-05-saga-evaluation.md` |

@@ -38,13 +38,6 @@ control y cancela la reserva pendiente. Si Payment ya fue autorizado y una
 etapa posterior falla, el Saga solicita `refund` al Payment Service y luego
 cancela la reserva.
 
-## CQRS
-
-CQRS no se implementa de forma artificial en esta sesión. La actividad práctica
-se concentra en la extracción física y el aislamiento de datos. La arquitectura
-queda preparada para separar posteriormente modelos de lectura y escritura si
-las métricas reales de carga justifican esa complejidad.
-
 ## Validación manual
 
 1. Ejecutar `docker compose up -d` desde `infra/`.

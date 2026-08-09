@@ -19,3 +19,9 @@ frontend/quickstay-web/.angular/
 
 # Env
 .env
+
+# Payment-service (Gradle/Java)
+payment-service/.gradle/
+payment-service/build/
+payment-service/out/
+*.class
