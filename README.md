@@ -44,58 +44,82 @@ Potentially millions of travelers across regions.
 
 ---
 
-# 2da Actividad — Build the Monolith Core
+# 2da Actividad — Build the Monolith Core (Sesión II)
 
-## 🏛️ Arquitectura actual (Sesión II): Layered Monolith
+Se construyó un **monolito en capas** puro (separado por rol técnico:
+presentation → service → repository → domain), sin separación por dominio
+de negocio todavía. Ese fue el punto de partida intencional — ver el
+refactor hacia dominios en la Sesión III, más abajo.
 
-> **Importante:** en esta sesión el proyecto es un **monolito en capas** puro
-> (separado por rol técnico: presentation → service → repository → domain),
-> **no** un monolito modular. La separación por dominio de negocio
-> (`booking`, `payment`, `user`, `notification`, `search` como paquetes aislados)
-> es justamente el refactor que corresponde a la **Sesión III** (Structural
-> Variation Styles → Bounded Contexts), por lo que todavía no está implementado.
-
-```
-quickstay-hotel-platform/
-├── backend/                          Spring Boot (Java 17, Gradle Groovy)
-│   └── src/main/java/com/quickstay/
-│       ├── controller/     RoomSearchController, ReservationController
-│       ├── service/        RoomSearchService, ReservationService
-│       ├── repository/     HotelRepository, RoomRepository,
-│       │                   GuestRepository, ReservationRepository
-│       ├── domain/         Hotel, Room, Guest, Reservation (+ enums)
-│       ├── dto/             Request/Response records
-│       └── exception/       GlobalExceptionHandler, RoomNotAvailableException
-│
-├── frontend/quickstay-web/           Angular 18 (standalone components)
-│   └── src/app/
-│       ├── core/
-│       │   ├── models/       room.model.ts
-│       │   └── services/     RoomSearchService, ReservationService
-│       └── features/
-│           └── room-search/  Búsqueda + reserva (componente único)
-│
-├── infra/
-│   └── docker-compose.yml    PostgreSQL 16
-```
-
-### Alcance funcional implementado (MVP Sesión II)
+### Alcance funcional (sigue vigente)
 - ✅ Búsqueda de disponibilidad por ciudad, fechas y precio máximo
 - ✅ Reserva de habitación con validación de solapamiento (anti-overbooking
   básico, dentro de una única transacción)
 - ✅ Cancelación de reserva
 - ✅ Alta automática de huésped al reservar
 - ⏳ Pago online, loyalty, promociones, check-in digital, notificaciones,
-  integración con OTAs → planificado para sesiones posteriores (ver roadmap
-  más abajo)
+  integración con OTAs → planificado para sesiones posteriores
+
+---
+
+# 3ra Actividad — Structural Variation Styles (Sesión III)
+
+**Actividades:** *Conduct an architectural review of the initial monolith*
++ *Refactor the code into strict domain packages/namespaces*.
+
+Ver el detalle completo de la revisión y las decisiones de diseño en
+[`docs/session-03-evaluation.md`](docs/session-03-evaluation.md).
+
+## 🏛️ Arquitectura actual: Modular Monolith (Bounded Contexts)
+
+El código se reorganizó de capas técnicas a **paquetes por dominio de
+negocio**. Sigue siendo un único deployable con una única base de datos
+(todavía no es microservicios), pero cada dominio ya es internamente
+cohesivo y sus límites están explícitos en el código.
+
+```
+quickstay-hotel-platform/
+├── backend/                          Spring Boot (Java 17, Gradle Groovy)
+│   └── src/main/java/com/quickstay/
+│       ├── inventory/                Bounded Context: Hoteles y habitaciones
+│       │   ├── domain/       Hotel, Room, HotelOwnershipType
+│       │   ├── repository/   HotelRepository, RoomRepository
+│       │   ├── service/      RoomSearchService
+│       │   ├── web/          RoomSearchController
+│       │   └── dto/          RoomSearchRequest, RoomAvailabilityResponse
+│       │
+│       ├── booking/                  Bounded Context: Huéspedes y reservas
+│       │   ├── domain/       Guest, Reservation, ReservationStatus
+│       │   ├── repository/   GuestRepository, ReservationRepository
+│       │   ├── service/      ReservationService
+│       │   ├── web/          ReservationController
+│       │   ├── dto/          ReservationRequest, ReservationResponse
+│       │   └── exception/    RoomNotAvailableException
+│       │
+│       └── shared/                   Cross-cutting
+│           └── exception/    GlobalExceptionHandler
+│
+├── frontend/quickstay-web/           Angular 18 (standalone components) — sin cambios
+├── infra/                            docker-compose (PostgreSQL) — sin cambios
+└── docs/
+    └── session-03-evaluation.md      Revisión arquitectónica + justificación del refactor
+```
+
+### Cambio de diseño clave
+`Reservation` ya **no** mapea `Room` como relación JPA (`@ManyToOne`) —
+ahora guarda solo `roomId: UUID`. Esto evita que el dominio Booking cargue
+por accidente el grafo de entidades de Inventory, preservando el límite del
+Bounded Context aunque ambas tablas sigan en la misma base de datos física.
+Detalle completo en `docs/session-03-evaluation.md`.
 
 ### Principios de esta sesión
-- **Un solo deployable**: todo el backend corre en un único proceso Spring Boot.
-- **Comunicación entre capas por invocación directa** (no eventos ni mensajería
-  todavía — eso es Sesión IV).
-- **Base de datos única y compartida**, transacciones ACID simples (`@Transactional`).
-- **API First**: el backend expone JSON vía REST; el frontend Angular lo
-  consume con `HttpClient`.
+- **Bounded Contexts explícitos en el código**, no solo en la cabeza del
+  equipo.
+- **Un solo deployable y una sola base de datos** — la modularización es de
+  código, todavía no de infraestructura (eso empieza en Sesión VI).
+- Acoplamiento cross-dominio que queda **documentado como decisión
+  consciente**, no eliminado del todo (se resuelve con eventos en Sesión IV
+  y CQRS en Sesión VIII).
 
 ---
 
@@ -153,7 +177,7 @@ graph TD
 
     subgraph SystemBoundary["QuickStay Hotel System — Sesión II"]
         frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda y reserva de habitaciones."]
-        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Layered Monolith."]
+        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith."]
         database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations.")]
     end
 
@@ -170,36 +194,48 @@ graph TD
     class database db;
 ```
 
-## 🧩 Nivel 3: Diagrama de Componentes — estado real vs roadmap
+## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts (Sesión III)
 
 ```mermaid
 graph TD
     frontend["📱 QuickStay Frontend<br/><i>[Angular]</i>"]
     database[("🐘 PostgreSQL")]
 
-    subgraph Backend["⚙️ QuickStay Backend — Layered Monolith"]
-        controller["Controller Layer<br/><i>[Presentation]</i><br/>RoomSearchController, ReservationController"]
-        service["Service Layer<br/><i>[Business Logic]</i><br/>RoomSearchService, ReservationService"]
-        repository["Repository Layer<br/><i>[Spring Data JPA]</i><br/>Hotel/Room/Guest/ReservationRepository"]
-        domain["Domain Layer<br/><i>[Entities]</i><br/>Hotel, Room, Guest, Reservation"]
+    subgraph Inventory["📦 Inventory Bounded Context"]
+        invWeb["RoomSearchController"]
+        invService["RoomSearchService"]
+        invRepo["Hotel/RoomRepository"]
+        invDomain["Hotel, Room"]
     end
 
-    subgraph Roadmap["🗺️ Módulos planificados (sesiones futuras, aún no implementados)"]
-        paymentMod["Payment Module<br/><i>Sesión IV/V</i>"]
-        notifMod["Notification Module<br/><i>Sesión IV — eventos</i>"]
+    subgraph Booking["📅 Booking Bounded Context"]
+        bookWeb["ReservationController"]
+        bookService["ReservationService"]
+        bookRepo["Guest/ReservationRepository"]
+        bookDomain["Guest, Reservation (roomId: UUID)"]
+    end
+
+    subgraph Roadmap["🗺️ Bounded Contexts planificados (sesiones futuras)"]
+        paymentMod["Payment<br/><i>Sesión IV/V</i>"]
+        notifMod["Notification<br/><i>Sesión IV — eventos</i>"]
         loyaltyMod["Loyalty / Promotions<br/><i>Sesión VI/VIII</i>"]
         checkinMod["Digital Check-in<br/><i>Sesión VII</i>"]
     end
 
-    frontend -->|"Busca disponibilidad"| controller
-    frontend -->|"Crea/cancela reservas"| controller
-    controller --> service
-    service --> repository
-    repository --> domain
-    repository -->|"Spring Data JPA / SQL"| database
+    frontend -->|"Busca disponibilidad"| invWeb
+    frontend -->|"Crea/cancela reservas"| bookWeb
 
-    service -.->|"futuro: evento ReservationConfirmed"| notifMod
-    service -.->|"futuro: solicita cobro"| paymentMod
+    invWeb --> invService --> invRepo --> invDomain
+    bookWeb --> bookService --> bookRepo --> bookDomain
+
+    invRepo -->|"JDBC"| database
+    bookRepo -->|"JDBC"| database
+
+    bookService -.->|"lee: ¿existe la room?<br/>(único acoplamiento hacia Inventory)"| invRepo
+    invRepo -.->|"subquery cross-domain<br/>(acoplamiento pendiente, ver docs)"| bookDomain
+
+    bookService -.->|"futuro: evento ReservationConfirmed"| notifMod
+    bookService -.->|"futuro: solicita cobro"| paymentMod
 
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
     classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
@@ -208,7 +244,7 @@ graph TD
 
     class frontend container;
     class database db;
-    class controller,service,repository,domain component;
+    class invWeb,invService,invRepo,invDomain,bookWeb,bookService,bookRepo,bookDomain component;
     class paymentMod,notifMod,loyaltyMod,checkinMod future;
 ```
 
@@ -290,15 +326,21 @@ Se levanta en `http://localhost:4200`, ya conectado al backend
 
 ## 🗂️ Git — flujo por sesión
 
+Sesión III:
+
 ```bash
-git checkout -b session-02-layered-monolith
+git checkout -b session-03-modular-monolith
 git add .
-git commit -m "feat: session 02 layered monolith core"
-git push -u origin session-02-layered-monolith
+git commit -m "refactor: reorganize into inventory/booking bounded contexts
+
+- move layered packages into domain-oriented packages (inventory, booking)
+- decouple Reservation from Room JPA relation, use roomId reference instead
+- document remaining cross-domain coupling in docs/session-03-evaluation.md"
+git push -u origin session-03-modular-monolith
 
 git checkout main
-git merge --no-ff session-02-layered-monolith -m "merge: session 02 layered monolith core"
-git tag -a v0.2-layered-monolith -m "Session II: Layered Monolith Core"
+git merge --no-ff session-03-modular-monolith -m "merge: session 03 modular monolith (bounded contexts)"
+git tag -a v0.3-modular-monolith -m "Session III: Modular Monolith - Bounded Contexts"
 git push origin main --tags
 ```
 
