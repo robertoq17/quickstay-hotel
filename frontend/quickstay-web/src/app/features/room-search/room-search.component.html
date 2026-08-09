@@ -1,0 +1,53 @@
+<div class="room-search">
+  <h1>QuickStay — Buscar habitación</h1>
+
+  <form (ngSubmit)="search()">
+    <label>
+      Ciudad
+      <input type="text" name="city" [(ngModel)]="city" required />
+    </label>
+
+    <label>
+      Check-in
+      <input type="date" name="checkIn" [(ngModel)]="checkIn" required />
+    </label>
+
+    <label>
+      Check-out
+      <input type="date" name="checkOut" [(ngModel)]="checkOut" required />
+    </label>
+
+    <label>
+      Precio máximo por noche
+      <input type="number" name="maxPrice" [(ngModel)]="maxPrice" required />
+    </label>
+
+    <button type="submit">Buscar</button>
+  </form>
+
+  <p *ngIf="loading()">Buscando...</p>
+  <p class="error" *ngIf="errorMessage()">{{ errorMessage() }}</p>
+  <p class="success" *ngIf="confirmationMessage()">{{ confirmationMessage() }}</p>
+
+  <section *ngIf="results().length" class="guest-data">
+    <h2>Tus datos</h2>
+    <label>
+      Nombre completo
+      <input type="text" [(ngModel)]="guestFullName" name="guestFullName" />
+    </label>
+    <label>
+      Email
+      <input type="email" [(ngModel)]="guestEmail" name="guestEmail" />
+    </label>
+  </section>
+
+  <ul class="results">
+    <li *ngFor="let room of results()">
+      <div>
+        <strong>{{ room.hotelName }}</strong> — {{ room.roomType }} ({{ room.city }})
+        <div>Capacidad: {{ room.capacity }} · Bs {{ room.pricePerNight }} / noche</div>
+      </div>
+      <button (click)="reserve(room)">Reservar</button>
+    </li>
+  </ul>
+</div>

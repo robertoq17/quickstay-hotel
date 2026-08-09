@@ -1,0 +1,21 @@
+# Backend (Gradle/Java)
+backend/.gradle/
+backend/build/
+backend/out/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Frontend (Angular/Node)
+frontend/quickstay-web/node_modules/
+frontend/quickstay-web/dist/
+frontend/quickstay-web/.angular/
+
+# OS
+.DS_Store
+
+# Env
+.env
