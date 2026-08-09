@@ -3,9 +3,9 @@ spring:
     name: quickstay-backend
 
   datasource:
-    url: jdbc:postgresql://127.0.0.1:5433/quickstay
-    username: quickstay
-    password: quickstay
+    url: jdbc:postgresql://${DB_HOST:127.0.0.1}:${DB_PORT:5433}/${DB_NAME:quickstay}
+    username: ${DB_USER:quickstay}
+    password: ${DB_PASSWORD:quickstay}
 
   jpa:
     hibernate:
@@ -22,11 +22,11 @@ spring:
   rabbitmq:
     host: 127.0.0.1
     port: 5672
-    username: quickstay
-    password: quickstay
+    username: ${DB_USER:quickstay}
+    password: ${DB_PASSWORD:quickstay}
 
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
 
 logging:
   level:

@@ -10,6 +10,11 @@ services:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickstay -d quickstay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   payment-postgres:
     image: postgres:16
@@ -22,15 +27,11 @@ services:
       - "5434:5432"
     volumes:
       - payment_pgdata:/var/lib/postgresql/data
-
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quickstay_payment -d quickstay_payment"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -41,6 +42,68 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+      - payment-postgres
+
+  payment-service:
+    build:
+      context: ../payment-service
+      dockerfile: Dockerfile
+    container_name: quickstay-payment-service
+    environment:
+      PAYMENT_DB_HOST: payment-postgres
+      PAYMENT_DB_PORT: 5432
+      PAYMENT_DB_NAME: quickstay_payment
+      PAYMENT_DB_USER: quickstay_payment
+      PAYMENT_DB_PASSWORD: quickstay_payment
+      PAYMENT_SERVICE_PORT: 8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      payment-postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: quickstay-backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: quickstay
+      DB_USER: quickstay
+      DB_PASSWORD: quickstay
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: quickstay
+      RABBITMQ_PASSWORD: quickstay
+      PAYMENT_SERVICE_URL: http://payment-service:8081
+      SERVER_PORT: 8082
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
 
 volumes:
   pgdata:
