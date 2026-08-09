@@ -1,7 +1,7 @@
 package com.quickstay.saga.dto;
 
 import com.quickstay.booking.dto.ReservationResponse;
-import com.quickstay.payment.dto.PaymentResponse;
+import com.quickstay.saga.client.PaymentClientResponse;
 import com.quickstay.saga.domain.SagaStatus;
 
 import java.util.UUID;
@@ -11,6 +11,6 @@ public record SagaBookingResponse(
         SagaStatus sagaStatus,
         String currentStep,
         ReservationResponse reservation,
-        PaymentResponse payment,
+        PaymentClientResponse payment,
         String message
 ) {}

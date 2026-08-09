@@ -3,8 +3,8 @@ package com.quickstay.saga.service;
 import com.quickstay.booking.dto.ReservationRequest;
 import com.quickstay.booking.dto.ReservationResponse;
 import com.quickstay.booking.service.ReservationService;
-import com.quickstay.payment.dto.PaymentResponse;
-import com.quickstay.payment.service.PaymentService;
+import com.quickstay.saga.client.PaymentClientResponse;
+import com.quickstay.saga.client.PaymentServiceClient;
 import com.quickstay.saga.domain.SagaExecution;
 import com.quickstay.saga.domain.SagaStatus;
 import com.quickstay.saga.dto.SagaBookingRequest;
@@ -17,26 +17,17 @@ import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-/**
- * Orchestration-based Saga for Booking -> Payment -> Booking confirmation.
- *
- * The orchestrator owns the workflow state. When payment fails, it invokes
- * Booking.cancel() as a compensating action. If a payment was already
- * authorized and a later step fails, it invokes Payment.refund() before
- * cancelling the reservation. The operation is intentionally idempotent for
- * already completed reservations/payments.
- */
 @Service
 @RequiredArgsConstructor
 public class SagaOrchestrator {
     private final ReservationService reservationService;
-    private final PaymentService paymentService;
+    private final PaymentServiceClient paymentServiceClient;
     private final SagaExecutionRepository sagaRepository;
 
     public SagaBookingResponse execute(SagaBookingRequest request) {
         ReservationRequest reservationRequest = request.reservation();
         ReservationResponse reservation = null;
-        PaymentResponse payment = null;
+        PaymentClientResponse payment = null;
         SagaExecution saga = newSaga();
         sagaRepository.save(saga);
 
@@ -48,7 +39,7 @@ public class SagaOrchestrator {
             touch(saga);
             sagaRepository.save(saga);
 
-            payment = paymentService.authorize(reservation.reservationId(), request.paymentAmount(), request.failPayment());
+            payment = paymentServiceClient.authorize(reservation.reservationId(), request.paymentAmount(), request.failPayment());
             saga.setStatus(SagaStatus.PAYMENT_AUTHORIZED);
             saga.setCurrentStep("BOOKING_CONFIRMATION");
             touch(saga);
@@ -63,13 +54,20 @@ public class SagaOrchestrator {
             return new SagaBookingResponse(saga.getId(), saga.getStatus(), saga.getCurrentStep(), reservation, payment,
                     "Booking Saga completed successfully.");
         } catch (Exception failure) {
+            String compensationError = null;
             if (reservation != null) {
-                compensate(reservation.reservationId(), payment);
+                try {
+                    compensate(reservation.reservationId(), payment);
+                } catch (Exception compensationFailure) {
+                    compensationError = shortMessage(compensationFailure);
+                }
             }
 
             saga.setStatus(SagaStatus.COMPENSATED);
             saga.setCurrentStep("COMPENSATION_COMPLETED");
-            saga.setErrorMessage(shortMessage(failure));
+            saga.setErrorMessage(compensationError == null
+                    ? shortMessage(failure)
+                    : shortMessage(failure) + " | Compensation warning: " + compensationError);
             touch(saga);
             sagaRepository.save(saga);
 
@@ -79,7 +77,8 @@ public class SagaOrchestrator {
 
             return new SagaBookingResponse(saga.getId(), saga.getStatus(), saga.getCurrentStep(),
                     compensatedReservation, payment,
-                    "Booking Saga failed and compensating actions were executed: " + shortMessage(failure));
+                    "Booking Saga failed and compensating actions were executed: " + shortMessage(failure)
+                            + (compensationError == null ? "" : " | Compensation warning: " + compensationError));
         }
     }
 
@@ -88,9 +87,9 @@ public class SagaOrchestrator {
                 .orElseThrow(() -> new NoSuchElementException("Saga not found: " + sagaId));
     }
 
-    private void compensate(UUID reservationId, PaymentResponse payment) {
-        if (payment != null && payment.status() == com.quickstay.payment.domain.PaymentStatus.AUTHORIZED) {
-            paymentService.refund(reservationId);
+    private void compensate(UUID reservationId, PaymentClientResponse payment) {
+        if (payment != null && payment.authorized()) {
+            paymentServiceClient.refund(reservationId);
         }
     }
 

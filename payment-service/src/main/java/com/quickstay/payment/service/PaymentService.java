@@ -13,12 +13,6 @@ import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-/**
- * Payment bounded context used by the Session V Saga demonstration.
- * It deliberately simulates an external payment provider: setting
- * failPayment=true makes authorization fail so the Saga can demonstrate
- * automatic compensation.
- */
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
@@ -29,6 +23,9 @@ public class PaymentService {
         return paymentRepository.findByReservationId(reservationId)
                 .map(existing -> {
                     if (existing.getStatus() == PaymentStatus.AUTHORIZED) {
+                        return toResponse(existing);
+                    }
+                    if (existing.getStatus() == PaymentStatus.FAILED) {
                         return toResponse(existing);
                     }
                     throw new PaymentAuthorizationException(
@@ -45,7 +42,6 @@ public class PaymentService {
         if (payment.getStatus() == PaymentStatus.REFUNDED) {
             return toResponse(payment);
         }
-
         if (payment.getStatus() != PaymentStatus.AUTHORIZED) {
             throw new IllegalStateException("Payment cannot be refunded from status " + payment.getStatus());
         }
@@ -60,12 +56,7 @@ public class PaymentService {
         payment.setAmount(amount);
         payment.setCreatedAt(Instant.now());
         payment.setStatus(failPayment ? PaymentStatus.FAILED : PaymentStatus.AUTHORIZED);
-        Payment saved = paymentRepository.save(payment);
-
-        if (failPayment) {
-            throw new PaymentAuthorizationException("Payment provider rejected the authorization for reservation " + reservationId);
-        }
-        return toResponse(saved);
+        return toResponse(paymentRepository.save(payment));
     }
 
     private PaymentResponse toResponse(Payment payment) {
