@@ -102,7 +102,6 @@ quickstay-hotel-platform/
 ├── frontend/quickstay-web/           Angular 18 (standalone components) — sin cambios
 ├── infra/                            docker-compose (PostgreSQL) — sin cambios
 └── docs/
-    ├── session-02-evaluation.md
     └── session-03-evaluation.md      Revisión arquitectónica + justificación del refactor
 ```
 
