@@ -176,7 +176,7 @@ graph TD
 ```
 
 > Los sistemas externos (OTAs, pagos, notificaciones) representan el estado
-> **objetivo** de QuickStay. En Sesión II todavía no hay integraciones reales
+> **objetivo** de QuickStay. En Sesión III todavía no hay integraciones reales
 > con ellos — se agregan en sesiones posteriores (IV en adelante).
 
 ## 📦 Nivel 2: Diagrama de Contenedores
@@ -185,9 +185,9 @@ graph TD
 graph TD
     user["👤 Usuario / Cliente<br/><i>[Person]</i>"]
 
-    subgraph SystemBoundary["QuickStay Hotel System — Sesión II"]
+    subgraph SystemBoundary["QuickStay Hotel System — Sesión III"]
         frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda y reserva de habitaciones."]
-        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Layered Monolith."]
+        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith."]
         database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations.")]
     end
 
