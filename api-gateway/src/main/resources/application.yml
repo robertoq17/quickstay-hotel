@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: quickstay-api-gateway
+
+  # Fuerza explícitamente el modo reactivo (WebFlux). Spring Cloud Gateway
+  # NO funciona sobre Servlet/MVC — si por algún motivo apareciera
+  # spring-boot-starter-web en el classpath, esto evita que Spring Boot elija
+  # el tipo de aplicación equivocado en silencio.
+  main:
+    web-application-type: reactive
+
+  cloud:
+    gateway:
+      # CORS centralizado acá — el frontend ya no le habla directo al
+      # backend, así que este es el único lugar donde hace falta declarar
+      # el origen permitido (ver docs/session-07-evaluation.md).
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "http://localhost:4200"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+
+# URLs de los servicios detrás del Gateway. Las lee GatewayRoutesConfig.java
+# (rutas definidas en código, no en YAML — ver esa clase para el porqué).
+quickstay:
+  backend:
+    base-url: ${BACKEND_SERVICE_URL:http://127.0.0.1:8080}
+  payment:
+    base-url: ${PAYMENT_SERVICE_URL:http://127.0.0.1:8081}
+
+server:
+  port: ${GATEWAY_PORT:8000}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentServiceCB:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+  timelimiter:
+    instances:
+      paymentServiceCB:
+        timeout-duration: 4s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,gateway,circuitbreakers
+  endpoint:
+    health:
+      show-details: always
+  health:
+    circuitbreakers:
+      enabled: true
+
+logging:
+  level:
+    com.quickstay.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
+    org.springframework.cloud.gateway.route.RouteDefinitionRouteLocator: INFO

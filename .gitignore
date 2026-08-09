@@ -2,6 +2,12 @@
 backend/.gradle/
 backend/build/
 backend/out/
+payment-service/.gradle/
+payment-service/build/
+payment-service/out/
+api-gateway/.gradle/
+api-gateway/build/
+api-gateway/out/
 *.class
 
 # IDE

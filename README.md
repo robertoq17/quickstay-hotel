@@ -236,7 +236,7 @@ graph TD
 > proveedor dentro del backend. La notificación también mantiene un stub de
 > logging detrás de RabbitMQ.
 
-## 📦 Nivel 2: Diagrama de Contenedores (Sesión VI)
+## 📦 Nivel 2: Diagrama de Contenedores (Sesión VII)
 
 ```mermaid
 graph TD
@@ -244,6 +244,7 @@ graph TD
 
     subgraph SystemBoundary["QuickStay Hotel System"]
         frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda, captura de huésped y ejecución del workflow Booking + Payment."]
+        gateway["🚪 API Gateway<br/><i>[Container: Spring Cloud Gateway]</i><br/>Único punto de entrada. Enruta hacia backend o payment-service."]
         backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith: Inventory, Booking, Saga Orchestrator y Notification."]
         database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations, saga_executions.")]
         broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events + cola de Notification."}}
@@ -257,34 +258,41 @@ API REST de autorización y refund."]
     notificationProvider["✉️ Email/SMS/Push Provider<br/><i>[External System]</i><br/>Canal externo futuro."]
 
     user -->|"Usa [HTTP]"| frontend
-    frontend -->|"Consume REST API [JSON/HTTP]"| backend
+    frontend -->|"Toda request pasa por acá [JSON/HTTP]"| gateway
+    gateway -->|"/api/rooms/**<br/>/api/reservations/**<br/>/api/sagas/**"| backend
+    gateway -->|"/api/payments/**<br/>[+ Circuit Breaker]"| paymentService
+
     backend -->|"JDBC"| database
     backend -->|"Publica eventos [AMQP]"| broker
     broker -->|"Entrega eventos [AMQP]"| backend
 
-    backend -->|"REST /api/payments [HTTP]"| paymentService
+    backend -->|"REST /api/payments [HTTP directo,<br/>NO pasa por el Gateway]"| paymentService
     paymentService -->|"JDBC"| paymentDatabase
     paymentService -.->|"Provider API<br/>(futuro)"| paymentProvider
     backend -.->|"Notification API<br/>(futuro)"| notificationProvider
 
     classDef person fill:#08427b,color:#fff,stroke:#073b6f,stroke-width:2px;
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
+    classDef gateway fill:#7b2d8e,color:#fff,stroke:#5c2069,stroke-width:2px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
     classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
     classDef external fill:#999999,color:#fff,stroke:#666666,stroke-width:2px;
 
     class user person;
     class frontend,backend,paymentService container;
+    class gateway gateway;
     class database,paymentDatabase db;
     class broker broker;
     class paymentProvider,notificationProvider external;
 ```
 
-> **Evolución de Sesión V → VI:** `Payment` deja de ser un módulo interno del
-> `QuickStay Backend` y pasa a un **deployment unit independiente**. Su base
-> `quickstay_payment` vive en otra instancia PostgreSQL (`5434`) y no comparte
-> tablas con la base del monolito (`5433`). El `SagaOrchestrator` conserva la
-> coordinación, pero ahora cruza el límite de proceso mediante REST.
+> **Evolución de Sesión VI → VII:** el frontend deja de hablarle directo al
+> backend (`8080`). Ahora todo pasa por el **API Gateway** (`8000`), que
+> decide según el path si la request va al monolito o al microservicio de
+> Payment. La llamada interna `Saga → Payment` (línea punteada "NO pasa por
+> el Gateway" en el diagrama) sigue siendo directa — el Gateway resuelve
+> tráfico norte-sur (cliente → sistema), no este-oeste (servicio → servicio).
+> Ver `docs/session-07-evaluation.md`.
 
 ### Cambios de la Sesión VI en el Nivel 2
 
@@ -296,11 +304,24 @@ API REST de autorización y refund."]
   `V4__extract_payment_context.sql`.
 - La comunicación `Saga → Payment` pasa a ser **REST/HTTP**.
 - La compensación `refund` sigue siendo parte del workflow Saga.
-- No se introduce un API Gateway artificial: el objetivo de esta sesión es la
-  extracción física de un bounded context, no agregar infraestructura que la
-  actividad no exige.
 
-## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging + Saga + Extracted Payment
+### Cambios de la Sesión VII en el Nivel 2
+
+- Nace **`api-gateway/`** (Spring Cloud Gateway), único punto de entrada
+  público en el puerto `8000`.
+- El **frontend** ahora apunta a `http://localhost:8000` en vez de
+  `http://localhost:8080` (`environment.ts`).
+- Rutas hacia el monolito (`/api/rooms/**`, `/api/reservations/**`,
+  `/api/sagas/**`): sin Circuit Breaker — si el monolito cae, cae todo el
+  sistema de todas formas.
+- Ruta hacia Payment (`/api/payments/**`): **con Circuit Breaker**
+  (Resilience4j) — Payment es el componente aislado con mayor probabilidad
+  de fallar de forma independiente.
+- CORS se centraliza en el Gateway (`spring.cloud.gateway.globalcors`); el
+  `CorsConfig` del backend queda vigente solo para pruebas directas sin
+  pasar por el Gateway.
+
+## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging + Saga + Extracted Payment + API Gateway
 
 ```mermaid
 graph TD
@@ -308,6 +329,11 @@ graph TD
     database[("🐘 PostgreSQL<br/>QuickStay DB")]
     paymentDatabase[("🐘 PostgreSQL<br/>Payment DB")]
     broker{{"🐰 RabbitMQ<br/>exchange: quickstay.reservation-events"}}
+
+    subgraph Gateway["🚪 API Gateway — único punto de entrada (8000)"]
+        gwRoutes["GatewayRoutesConfig<br/>RouteLocatorBuilder (Java DSL)"]
+        gwFallback["FallbackController<br/>/fallback/payments"]
+    end
 
     subgraph Backend["QuickStay Backend — Modular Monolith"]
         subgraph Inventory["📦 Inventory Bounded Context"]
@@ -329,7 +355,7 @@ graph TD
         subgraph Saga["🔄 Saga Bounded Context"]
             sagaWeb["SagaController<br/>POST/GET /api/sagas/bookings"]
             sagaOrchestrator["SagaOrchestrator<br/>workflow state machine"]
-            paymentClient["PaymentServiceClient<br/>REST/HTTP"]
+            paymentClient["PaymentServiceClient<br/>REST/HTTP — directo, NO por el Gateway"]
             sagaRepo["SagaExecutionRepository"]
             sagaDomain["SagaExecution<br/>STARTED / COMPLETED / COMPENSATED"]
         end
@@ -346,8 +372,12 @@ graph TD
         paymentDomain["Payment<br/>AUTHORIZED / FAILED / REFUNDED"]
     end
 
-    frontend -->|"Busca disponibilidad"| invWeb
-    frontend -->|"Ejecuta Booking + Payment Saga"| sagaWeb
+    frontend -->|"toda request [HTTP]"| gwRoutes
+    gwRoutes -->|"/api/rooms/**"| invWeb
+    gwRoutes -->|"/api/reservations/**"| bookWeb
+    gwRoutes -->|"/api/sagas/**"| sagaWeb
+    gwRoutes -->|"/api/payments/**<br/>+ Circuit Breaker"| paymentWeb
+    gwRoutes -.->|"breaker abierto"| gwFallback
 
     invWeb --> invService --> invRepo --> invDomain
     bookWeb --> bookService --> bookRepo --> bookDomain
@@ -380,10 +410,12 @@ graph TD
     classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
     classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
+    classDef gateway fill:#7b2d8e,color:#fff,stroke:#5c2069,stroke-width:2px;
 
     class frontend container;
     class database,paymentDatabase db;
     class broker broker;
+    class gwRoutes,gwFallback gateway;
     class invWeb,invService,invRepo,invDomain,bookWeb,bookService,bookEvent,bookPublisher,bookRepo,bookDomain,sagaWeb,sagaOrchestrator,paymentClient,sagaRepo,sagaDomain,notifListener,paymentWeb,paymentApp,paymentRepo,paymentDomain component;
 ```
 
@@ -391,14 +423,14 @@ graph TD
 > tablas con Booking. El único contrato entre ambos contextos es la API del
 > `Payment Service`, consumida por `PaymentServiceClient`. La `reservationId`
 > se intercambia como identificador de negocio, sin FK física entre bases.
+>
+> **API Gateway (Sesión VII):** notá que `paymentClient` (dentro del Saga)
+> le sigue hablando a `PaymentService` **directo**, no a través de
+> `gwRoutes` — el Gateway resuelve tráfico cliente-externo→sistema, no
+> comunicación interna servicio-a-servicio. Ver
+> `docs/session-07-evaluation.md`.
 
 # 🔄 Session V — Service-Based & Orchestrated Styles
-
-**Unidad de aprendizaje:** *Service-Based & Orchestrated Styles*  
-**Unidades temáticas:** Hybrid architectures, API Gateways y Saga workflows.  
-**Competencia:** Diseñar flujos resilientes entre múltiples servicios mediante
-Saga y acciones compensatorias, gestionando fallos parciales y priorizando la
-recuperación automática y la integridad de los datos.
 
 ## 🎯 Actividad implementada
 
@@ -806,15 +838,86 @@ escalar Payment por separado.
 **Costo:** comunicación de red, configuración distribuida, dos ciclos de
 despliegue, observabilidad adicional y nuevos puntos de fallo.
 
+# 🚪 Session VII — Advanced Distributed Architectures: API Gateway
+
+## 🎯 Actividad implementada
+
+*Deploy an API Gateway to act as the single entry point for clients,
+routing incoming requests seamlessly to either the new microservice or the
+remaining monolith.*
+
+Nace **`api-gateway/`** — un tercer deployable (Spring Cloud Gateway,
+puerto `8000`), que se convierte en el único punto de entrada público del
+sistema. El frontend deja de hablarle directo al backend.
+
+## 🗺️ Rutas configuradas
+
+| Path | Destino | Circuit Breaker |
+|---|---|---|
+| `/api/rooms/**` | `quickstay-backend` | No |
+| `/api/reservations/**` | `quickstay-backend` | No |
+| `/api/sagas/**` | `quickstay-backend` | No |
+| `/api/payments/**` | `quickstay-payment-service` | **Sí** (Resilience4j) |
+
+Configuración de rutas en `api-gateway/src/main/java/com/quickstay/gateway/config/GatewayRoutesConfig.java`
+(DSL Java de Spring Cloud Gateway, vía `RouteLocatorBuilder`) — se prefirió
+código sobre YAML para que el compilador valide la sintaxis de cada ruta y
+filtro, en vez de descubrir un typo recién en tiempo de ejecución. El
+`application.yml` del Gateway solo tiene configuración (CORS, puertos,
+umbrales del Circuit Breaker), no las rutas en sí.
+
+## 🔌 Circuit Breaker sobre Payment
+
+Si `payment-service` está caído, lento, o falla por encima del umbral
+configurado (`failure-rate-threshold: 50` sobre una ventana de 10 llamadas),
+el Gateway deja de reenviarle tráfico y responde inmediatamente con `503`
+vía `FallbackController`, en vez de dejar al cliente esperando un timeout.
+
+Estado del breaker en vivo: `http://localhost:8000/actuator/circuitbreakers`.
+
+Detalle completo de la relación entre este Circuit Breaker y la
+compensación del Saga (son mecanismos de resiliencia distintos, en capas
+distintas) en `docs/session-07-evaluation.md`.
+
+## 🧠 Decisiones de diseño de la Session VII
+
+### ¿Por qué el Saga sigue llamando a Payment directo, sin pasar por el Gateway?
+
+El API Gateway resuelve tráfico **norte-sur** (cliente externo → sistema).
+La llamada `SagaOrchestrator → PaymentServiceClient` es **este-oeste**
+(servicio → servicio, interna al sistema) — pasarla por el Gateway no
+aportaría nada y agregaría un salto de red innecesario. Ver
+`docs/session-07-evaluation.md` para el detalle completo.
+
+### ¿Por qué Circuit Breaker solo en la ruta de Payment?
+
+Las rutas hacia el monolito no lo necesitan tanto: si el monolito cae, cae
+todo el sistema igual (Inventory, Booking y Saga viven ahí). Payment, en
+cambio, es un fallo aislado real — el sistema puede seguir funcionando
+parcialmente (buscar habitaciones, por ejemplo) aunque Payment esté caído.
+
+### Trade-off
+
+**Ganancia:** el frontend (y cualquier cliente futuro — app mobile, un
+partner externo) tiene un único endpoint estable, sin importar cuántos
+servicios haya detrás ni cómo cambien sus URLs internas. Resiliencia
+explícita ante la caída del componente más nuevo del sistema.
+
+**Costo:** un deployable más para operar, un salto de red adicional en cada
+request del cliente, y un nuevo punto único de falla (si el Gateway cae,
+cae el acceso a todo el sistema) — que en un entorno productivo se mitiga
+corriendo múltiples réplicas del Gateway detrás de un load balancer, fuera
+del alcance de este módulo.
+
 # 📚 Documentación por sesión
 
 | Sesión | Arquitectura / foco | Documentación |
 |---|---|---|
-| II | Layered Monolith | `docs/session-02-evaluation.md` |
 | III | Modular Monolith + Bounded Contexts | `docs/session-03-evaluation.md` |
 | IV | Enterprise Integration & Messaging | `docs/session-04-domain-events.md` · `docs/session-04-evaluation.md` |
 | V | Service-Based & Orchestrated Styles — Saga | `docs/session-05-saga-evaluation.md` |
 | VI | Microservices Deep Dive — Payment extraction + Data Isolation | `docs/session-06-microservices-extraction.md` |
+| VII | Advanced Distributed Architectures — API Gateway + Circuit Breaker | `docs/session-07-evaluation.md` |
 
 ## 🚀 Cómo levantar el entorno local
 
@@ -839,7 +942,7 @@ Management UI de RabbitMQ: `http://localhost:15672` — útil para ver el
 exchange `quickstay.reservation-events` y la cola
 `notification.reservation-events` en tiempo real.
 
-### 2. Backend
+### 2. Backend (monolito)
 
 ```bash
 cd backend
@@ -859,14 +962,44 @@ Endpoints disponibles:
 GET  /api/rooms/search?city={city}&checkIn={yyyy-MM-dd}&checkOut={yyyy-MM-dd}&maxPrice={decimal}
 POST /api/reservations
 POST /api/reservations/{id}/cancel
+POST /api/sagas/bookings
+GET  /api/sagas/bookings/{sagaId}
 ```
 
-Ejemplo:
-```
-http://localhost:8080/api/rooms/search?city=La%20Paz&checkIn=2026-09-01&checkOut=2026-09-05&maxPrice=600
+### 3. Payment Service (microservicio)
+
+En otra terminal:
+
+```bash
+cd payment-service
+./gradlew bootRun        # Windows: .\gradlew.bat bootRun
 ```
 
-### 3. Frontend
+Queda disponible en `http://localhost:8081`. El backend lo llama
+directamente vía `PAYMENT_SERVICE_URL` (default `http://127.0.0.1:8081`) —
+no hace falta configurar nada extra si corrés todo en `localhost`.
+
+### 4. API Gateway (Sesión VII — punto de entrada único)
+
+En otra terminal:
+
+```bash
+cd api-gateway
+./gradlew bootRun        # Windows: .\gradlew.bat bootRun
+```
+
+Queda disponible en `http://localhost:8000`. A partir de esta sesión, es el
+**único** endpoint que el frontend (y cualquier cliente externo) debería
+usar — enruta automáticamente hacia `backend` o `payment-service` según el
+path (ver `docs/session-07-evaluation.md`).
+
+Confirmá que las rutas se registraron bien:
+```
+http://localhost:8000/                          → info de cortesía + mapa de rutas
+http://localhost:8000/actuator/gateway/routes    → detalle real de rutas registradas
+```
+
+### 5. Frontend
 
 ```bash
 cd frontend/quickstay-web
@@ -874,15 +1007,27 @@ npm install
 npm start
 ```
 
-Se levanta en `http://localhost:4200`, ya conectado al backend
-(`src/environments/environment.ts`).
+Se levanta en `http://localhost:4200`, ya conectado al **Gateway**
+(`src/environments/environment.ts` → `http://localhost:8000`), no al
+backend directamente.
 
-### 4. Verificar
+### 6. Verificar
 
-- `http://localhost:4200` → formulario de búsqueda y listado de habitaciones
-  disponibles, con opción de reservar.
-- `http://localhost:8080/api/rooms/search?...` → JSON con habitaciones (ver
-  ejemplo arriba).
+- `http://localhost:4200` → formulario de búsqueda, reserva y pago (Saga),
+  todo pasando por el Gateway.
+- `http://localhost:8000/api/rooms/search?...` → JSON con habitaciones,
+  enrutado por el Gateway hacia el backend (ver ejemplo abajo).
+- `http://localhost:8000/actuator/circuitbreakers` → estado del Circuit
+  Breaker de la ruta de Payment.
+
+Ejemplo de búsqueda vía Gateway:
+```
+http://localhost:8000/api/rooms/search?city=La%20Paz&checkIn=2026-09-01&checkOut=2026-09-05&maxPrice=600
+```
+
+> Los backends siguen siendo alcanzables directo en `8080`/`8081` para
+> debugging puntual, pero el flujo "real" del sistema, a partir de esta
+> sesión, es siempre a través del Gateway (`8000`).
 
 ---
 
@@ -896,6 +1041,9 @@ Se levanta en `http://localhost:4200`, ya conectado al backend
 | `blocked by CORS policy` en la consola del navegador, request marcado `net::ERR_FAILED` (pero sin error en el log del backend) | El browser bloquea la respuesta porque el backend no declara `http://localhost:4200` como origen permitido | Ya resuelto vía `shared/config/CorsConfig.java` — si cambiás el puerto del frontend, actualizá `allowedOrigins` ahí |
 | Backend no arranca: `Connection refused` apuntando a `5672` | RabbitMQ no está corriendo | `docker ps` y confirmar `quickstay-rabbitmq` está `Up`; si no, `docker compose up -d` desde `infra/` |
 | No aparece el log `[NOTIFICATION] Enviando email...` tras reservar | El listener no está conectado a la cola, o el mensaje no llegó | Revisar `http://localhost:15672` → pestaña *Queues* → `notification.reservation-events`: si el mensaje quedó "Ready" sin consumir, el backend probablemente no levantó bien el `@RabbitListener` (ver log al arrancar) |
+| El frontend tira errores de red / CORS después de esta sesión | Sigue apuntando al backend directo (`8080`) en vez del Gateway (`8000`) | Confirmar `frontend/quickstay-web/src/environments/environment.ts` → `apiUrl: 'http://localhost:8000'`, y que `api-gateway` esté corriendo |
+| `503 Service Unavailable` al pagar, con mensaje de `FallbackController` | El Circuit Breaker de la ruta de Payment está abierto — `payment-service` está caído o viene fallando por encima del umbral | Confirmar `payment-service` está `Up` (`docker ps` o la terminal donde corre); revisar `http://localhost:8000/actuator/circuitbreakers` |
+| El Gateway arranca pero las rutas no aparecen en `/actuator/gateway/routes` | `spring-cloud-starter-gateway` no se resolvió bien, o `application.yml` tiene un error de indentación YAML | Revisar el log de arranque del Gateway por errores de `RouteDefinition`; validar la indentación de `spring.cloud.gateway.routes` |
 
 ---
 
@@ -992,5 +1140,27 @@ git push -u origin session-06-microservices-extraction
 git checkout main
 git merge --no-ff session-06-microservices-extraction -m "merge: session 06 microservices deep dive - payment extraction"
 git tag -a v0.6-microservices -m "Session VI: Microservices Deep Dive - Payment Extraction"
+git push origin main --tags
+```
+
+Sesión VII:
+
+```bash
+git checkout -b session-07-api-gateway
+git add .
+git commit -m "feat: add API Gateway as single entry point
+
+- add api-gateway module (Spring Cloud Gateway, port 8000)
+- route /api/rooms, /api/reservations, /api/sagas to backend
+- route /api/payments to payment-service with Circuit Breaker (Resilience4j)
+- add FallbackController for payment-service outages
+- centralize CORS at the gateway level
+- update frontend environment.ts to target the gateway instead of backend
+- add Session VII architecture documentation"
+git push -u origin session-07-api-gateway
+
+git checkout main
+git merge --no-ff session-07-api-gateway -m "merge: session 07 advanced distributed architectures - API gateway"
+git tag -a v0.7-api-gateway -m "Session VII: Advanced Distributed Architectures - API Gateway"
 git push origin main --tags
 ```
