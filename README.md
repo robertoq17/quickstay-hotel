@@ -387,9 +387,7 @@ graph TD
 
 # 🔄 Session V — Service-Based & Orchestrated Styles
 
-**Unidad de aprendizaje:** *Service-Based & Orchestrated Styles*  
-**Unidades temáticas:** Hybrid architectures, API Gateways y Saga workflows.  
-**Competencia:** Diseñar flujos resilientes entre múltiples servicios mediante
+Diseñar flujos resilientes entre múltiples servicios mediante
 Saga y acciones compensatorias, gestionando fallos parciales y priorizando la
 recuperación automática y la integridad de los datos.
 
