@@ -53,7 +53,7 @@ Potentially millions of travelers across regions.
 > **no** un monolito modular. La separación por dominio de negocio
 > (`booking`, `payment`, `user`, `notification`, `search` como paquetes aislados)
 > es justamente el refactor que corresponde a la **Sesión III** (Structural
-> Variation Styles → Bounded Contexts), todavía no implementado.
+> Variation Styles → Bounded Contexts), por lo que todavía no está implementado.
 
 ```
 quickstay-hotel-platform/
@@ -77,10 +77,6 @@ quickstay-hotel-platform/
 │
 ├── infra/
 │   └── docker-compose.yml    PostgreSQL 16
-│
-└── docs/
-    └── session-02-evaluation.md   Evaluación crítica (acoplamiento,
-                                    rendimiento, límites transaccionales)
 ```
 
 ### Alcance funcional implementado (MVP Sesión II)
