@@ -30,3 +30,18 @@ export interface ReservationResponse {
   checkOut: string;
   status: string;
 }
+
+export interface SagaBookingRequest {
+  reservation: ReservationRequest;
+  paymentAmount: number;
+  failPayment: boolean;
+}
+
+export interface SagaBookingResponse {
+  sagaId: string;
+  sagaStatus: string;
+  currentStep: string;
+  reservation: ReservationResponse | null;
+  payment: { paymentId: string; reservationId: string; amount: number; status: string } | null;
+  message: string;
+}

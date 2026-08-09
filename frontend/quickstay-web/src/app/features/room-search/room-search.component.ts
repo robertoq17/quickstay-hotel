@@ -25,6 +25,7 @@ export class RoomSearchComponent {
   loading = signal(false);
   errorMessage = signal<string | null>(null);
   confirmationMessage = signal<string | null>(null);
+  failPayment = false;
 
   constructor(
     private roomSearchService: RoomSearchService,
@@ -56,22 +57,48 @@ export class RoomSearchComponent {
       return;
     }
 
+    const nights = this.calculateNights();
+    if (nights <= 0) {
+      this.errorMessage.set('Selecciona fechas válidas de check-in y check-out.');
+      return;
+    }
+
+    const paymentAmount = room.pricePerNight * nights;
+    this.loading.set(true);
+    this.errorMessage.set(null);
+    this.confirmationMessage.set(null);
+
     this.reservationService
-      .reserve({
-        roomId: room.roomId,
-        guestFullName: this.guestFullName,
-        guestEmail: this.guestEmail,
-        checkIn: this.checkIn,
-        checkOut: this.checkOut
+      .bookAndPay({
+        reservation: {
+          roomId: room.roomId,
+          guestFullName: this.guestFullName,
+          guestEmail: this.guestEmail,
+          checkIn: this.checkIn,
+          checkOut: this.checkOut
+        },
+        paymentAmount,
+        failPayment: this.failPayment
       })
       .subscribe({
-        next: (reservation) => {
-          this.confirmationMessage.set(`Reserva confirmada: ${reservation.reservationId}`);
+        next: (result) => {
+          this.loading.set(false);
+          this.confirmationMessage.set(
+            `${result.message} Saga ${result.sagaId} · Estado: ${result.sagaStatus} · Total: Bs ${paymentAmount}`
+          );
         },
         error: (err) => {
-          const msg = err?.error?.message ?? 'No se pudo reservar la habitación.';
-          this.errorMessage.set(msg);
+          this.loading.set(false);
+          const saga = err?.error;
+          this.errorMessage.set(saga?.message ?? 'La Saga no pudo completar la reserva.');
         }
       });
+  }
+
+  private calculateNights(): number {
+    if (!this.checkIn || !this.checkOut) return 0;
+    const start = new Date(`${this.checkIn}T00:00:00`);
+    const end = new Date(`${this.checkOut}T00:00:00`);
+    return Math.round((end.getTime() - start.getTime()) / 86_400_000);
   }
 }

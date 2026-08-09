@@ -39,6 +39,11 @@
       Email
       <input type="email" [(ngModel)]="guestEmail" name="guestEmail" />
     </label>
+
+    <label class="saga-demo">
+      <input type="checkbox" [(ngModel)]="failPayment" name="failPayment" />
+      Simular fallo de pago (probar compensación de la Saga)
+    </label>
   </section>
 
   <ul class="results">
@@ -47,7 +52,7 @@
         <strong>{{ room.hotelName }}</strong> — {{ room.roomType }} ({{ room.city }})
         <div>Capacidad: {{ room.capacity }} · Bs {{ room.pricePerNight }} / noche</div>
       </div>
-      <button (click)="reserve(room)">Reservar</button>
+      <button (click)="reserve(room)">Reservar y pagar · Saga</button>
     </li>
   </ul>
 </div>
