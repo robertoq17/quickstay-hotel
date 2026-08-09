@@ -194,6 +194,12 @@ completo del trade-off en `docs/session-04-evaluation.md`.
 
 # 🏨 Arquitectura de Software (C4 Model)
 
+Los diagramas C4 se mantienen con el mismo lenguaje visual de las sesiones
+anteriores: **azul para personas/sistemas/contenedores propios, gris para
+sistemas externos o componentes futuros, azul oscuro para persistencia y
+naranja para RabbitMQ**. La diferencia es que ahora reflejan el estado real
+hasta **Sesión V**, incluyendo Payment y el Saga Orchestrator.
+
 ## 📌 Nivel 1: Diagrama de Contexto
 
 ```mermaid
@@ -201,17 +207,17 @@ graph TD
     traveler["👤 Viajero / Cliente<br/><i>[Persona]</i><br/>Busca habitaciones, reserva, paga online, gestiona check-in/out y solicita servicios."]
     hotelStaff["👤 Personal del Hotel<br/><i>[Persona]</i><br/>Atiende solicitudes de room service, limpieza y mantenimiento."]
 
-    quickstay["🏨 QuickStay Platform<br/><i>[Sistema de Software]</i><br/>Gestiona disponibilidad, reservas, cancelaciones, fidelidad, promociones y solicitudes de huéspedes."]
+    quickstay["🏨 QuickStay Platform<br/><i>[Sistema de Software]</i><br/>Gestiona disponibilidad, reservas, pagos, cancelaciones, notificaciones y workflows distribuidos."]
 
     otas["🌐 Agencias de Viajes Externas (OTAs)<br/><i>[Sistema Externo]</i><br/>Consultan disponibilidad y reservan en hoteles franquiciados o propios."]
-    paymentSystem["💳 Proveedores de Pago<br/><i>[Sistema Externo]</i><br/>Pasarelas de pago para transacciones en múltiples monedas."]
+    paymentSystem["💳 Proveedor de Pago Externo<br/><i>[Sistema Externo]</i><br/>Pasarela real para autorizar y reembolsar transacciones.<br/>(Integración futura; Session V usa un Payment Service simulado.)"]
     notificationService["✉️ Servicio de Notificaciones<br/><i>[Sistema Externo]</i><br/>Email/SMS/Push para confirmaciones y alertas."]
 
     traveler -->|"Busca, reserva, paga, check-in digital, solicita servicios"| quickstay
     hotelStaff -->|"Gestiona solicitudes operativas"| quickstay
     otas -->|"Consulta disponibilidad y reserva"| quickstay
-    quickstay -->|"Procesa cobros"| paymentSystem
-    quickstay -->|"Envía notificaciones"| notificationService
+    quickstay -.->|"Autoriza / reembolsa pagos<br/>(roadmap de integración externa)"| paymentSystem
+    quickstay -.->|"Envía notificaciones<br/>(canal externo futuro)"| notificationService
 
     classDef person fill:#08427b,color:#fff,stroke:#073b6f,stroke-width:2px;
     classDef system fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
@@ -222,52 +228,70 @@ graph TD
     class otas,paymentSystem,notificationService external;
 ```
 
-> Los sistemas externos (OTAs, pagos, notificaciones) representan el estado
-> **objetivo** de QuickStay. Estado real a Sesión IV: **Notification** ya
-> existe como Bounded Context interno y consume eventos de Booking de forma
-> asíncrona (ver Nivel 3), pero el canal final hacia el huésped (envío real
-> de email/SMS/push, el sistema externo de este diagrama) todavía es un
-> stub que solo loguea — no hay integración real con un proveedor. OTAs y
-> Proveedores de Pago siguen sin integración alguna (roadmap Sesión V+).
+> **Estado a Sesión V:** QuickStay ya contiene internamente los bounded
+> contexts/módulos `Booking`, `Payment`, `Saga` y `Notification`. El proveedor
+> de pago externo del Nivel 1 continúa siendo un sistema de integración
+> futura: para demostrar la actividad de Saga, `PaymentService` simula ese
+> proveedor dentro del backend. La notificación también mantiene un stub de
+> logging detrás de RabbitMQ.
 
-## 📦 Nivel 2: Diagrama de Contenedores (Sesión IV)
+## 📦 Nivel 2: Diagrama de Contenedores (Sesión V)
 
 ```mermaid
 graph TD
     user["👤 Usuario / Cliente<br/><i>[Person]</i>"]
 
     subgraph SystemBoundary["QuickStay Hotel System"]
-        frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda y reserva de habitaciones."]
-        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith (Inventory, Booking, Notification)."]
-        database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations.")]
-        broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events."}}
+        frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda, captura de huésped y ejecución del workflow Booking + Payment."]
+        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith: Inventory, Booking, Payment, Saga Orchestrator y Notification."]
+        database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations, payments, saga_executions.")]
+        broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events + cola de Notification."}}
     end
+
+    paymentProvider["💳 Payment Provider<br/><i>[External System]</i><br/>Integración real futura."]
+    notificationProvider["✉️ Email/SMS/Push Provider<br/><i>[External System]</i><br/>Canal externo futuro."]
 
     user -->|"Usa [HTTP]"| frontend
     frontend -->|"Consume REST API [JSON/HTTP]"| backend
     backend -->|"JDBC"| database
     backend -->|"Publica eventos [AMQP]"| broker
     broker -->|"Entrega eventos [AMQP]"| backend
+    backend -.->|"Payment API<br/>(futura extracción/integración)"| paymentProvider
+    backend -.->|"Notification API<br/>(futuro)"| notificationProvider
 
     classDef person fill:#08427b,color:#fff,stroke:#073b6f,stroke-width:2px;
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
     classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
+    classDef external fill:#999999,color:#fff,stroke:#666666,stroke-width:2px;
 
     class user person;
     class frontend,backend container;
     class database db;
     class broker broker;
+    class paymentProvider,notificationProvider external;
 ```
 
-> Nota: el backend aparece publicando **y** consumiendo del broker porque,
-> al ser todavía un monolito, tanto Booking (publisher) como Notification
-> (consumer) corren dentro del mismo proceso/container. Cuando Notification
-> se extraiga a su propio servicio (Sesión VI+), este diagrama pasaría a
-> tener dos containers de aplicación distintos conectados por RabbitMQ, en
-> vez de uno solo hablándose a sí mismo.
+> **Decisión C4 importante:** aunque la actividad se denomina
+> *Service-Based & Orchestrated Styles*, `Booking`, `Payment` y `Saga
+> Orchestrator` **todavía no son containers C4 independientes**. Son módulos
+> lógicos dentro del mismo container `QuickStay Backend`. Esto es coherente
+> con el código actual y evita presentar como microservicio algo que todavía
+> se despliega como un único proceso. La arquitectura queda preparada para
+> extraerlos en futuras sesiones.
 
-## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging (Sesión IV)
+### Cambios de la Sesión V en el Nivel 2
+
+- Se incorpora el **Saga Orchestrator** dentro del backend.
+- Se incorpora el módulo **Payment** dentro del backend.
+- PostgreSQL ahora persiste `payments` y `saga_executions`, además de las
+  entidades existentes.
+- RabbitMQ se conserva: Notification continúa consumiendo los eventos de
+  Booking de forma asíncrona.
+- No se inventa un API Gateway físico: `/api/sagas/bookings` es actualmente
+  un endpoint del `SagaController`, no un container independiente.
+
+## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging + Saga
 
 ```mermaid
 graph TD
@@ -284,41 +308,56 @@ graph TD
 
     subgraph Booking["📅 Booking Bounded Context"]
         bookWeb["ReservationController"]
-        bookService["ReservationService"]
+        bookService["ReservationService<br/>reserve / confirm / cancel"]
         bookEvent["ApplicationEventPublisher<br/>(in-memory bus)"]
         bookPublisher["ReservationEventPublisher<br/>(AFTER_COMMIT)"]
         bookRepo["Guest/ReservationRepository"]
-        bookDomain["Guest, Reservation (roomId: UUID)"]
+        bookDomain["Guest, Reservation<br/>PENDING_PAYMENT / CONFIRMED / CANCELLED"]
+    end
+
+    subgraph Payment["💳 Payment Bounded Context"]
+        paymentService["PaymentService<br/>authorize / refund"]
+        paymentRepo["PaymentRepository"]
+        paymentDomain["Payment<br/>AUTHORIZED / FAILED / REFUNDED"]
+    end
+
+    subgraph Saga["🔄 Saga Bounded Context"]
+        sagaWeb["SagaController<br/>POST/GET /api/sagas/bookings"]
+        sagaOrchestrator["SagaOrchestrator<br/>workflow state machine"]
+        sagaRepo["SagaExecutionRepository"]
+        sagaDomain["SagaExecution<br/>STARTED / COMPLETED / COMPENSATED"]
     end
 
     subgraph Notification["✉️ Notification Bounded Context"]
         notifListener["ReservationNotificationListener<br/>@RabbitListener"]
     end
 
-    subgraph Roadmap["🗺️ Bounded Contexts planificados (sesiones futuras)"]
-        paymentMod["Payment<br/><i>Sesión IV/V</i>"]
-        loyaltyMod["Loyalty / Promotions<br/><i>Sesión VI/VIII</i>"]
-        checkinMod["Digital Check-in<br/><i>Sesión VII</i>"]
-    end
-
     frontend -->|"Busca disponibilidad"| invWeb
-    frontend -->|"Crea/cancela reservas"| bookWeb
+    frontend -->|"Ejecuta Booking + Payment Saga"| sagaWeb
 
     invWeb --> invService --> invRepo --> invDomain
     bookWeb --> bookService --> bookRepo --> bookDomain
+    sagaWeb --> sagaOrchestrator
+    sagaOrchestrator -->|"1. create pending"| bookService
+    sagaOrchestrator -->|"2. authorize"| paymentService
+    sagaOrchestrator -->|"3. confirm"| bookService
+    sagaOrchestrator -.->|"compensate: cancel"| bookService
+    sagaOrchestrator -.->|"compensate: refund"| paymentService
+    sagaOrchestrator --> sagaRepo --> sagaDomain
+    paymentService --> paymentRepo --> paymentDomain
 
     invRepo -->|"JDBC"| database
     bookRepo -->|"JDBC"| database
+    paymentRepo -->|"JDBC"| database
+    sagaRepo -->|"JDBC"| database
 
-    bookService -.->|"lee: ¿existe la room?<br/>(único acoplamiento síncrono)"| invRepo
-    invRepo -.->|"subquery cross-domain<br/>(acoplamiento pendiente, ver docs)"| bookDomain
+    bookService -.->|"lee: ¿existe la room?"| invRepo
+    invRepo -.->|"subquery cross-domain<br/>(acoplamiento pendiente)"| bookDomain
 
-    bookService -->|"1. publishEvent()"| bookEvent
-    bookEvent -->|"2. AFTER_COMMIT"| bookPublisher
-    bookPublisher -->|"3. convertAndSend()"| broker
-    broker -->|"4. @RabbitListener"| notifListener
-
-    bookService -.->|"futuro: solicita cobro"| paymentMod
+    bookService -->|"publishEvent()"| bookEvent
+    bookEvent -->|"AFTER_COMMIT"| bookPublisher
+    bookPublisher -->|"convertAndSend()"| broker
+    broker -->|"@RabbitListener"| notifListener
 
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
     classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
@@ -329,11 +368,218 @@ graph TD
     class frontend container;
     class database db;
     class broker broker;
-    class invWeb,invService,invRepo,invDomain,bookWeb,bookService,bookEvent,bookPublisher,bookRepo,bookDomain,notifListener component;
-    class paymentMod,loyaltyMod,checkinMod future;
+    class invWeb,invService,invRepo,invDomain,bookWeb,bookService,bookEvent,bookPublisher,bookRepo,bookDomain,paymentService,paymentRepo,paymentDomain,sagaWeb,sagaOrchestrator,sagaRepo,sagaDomain,notifListener component;
 ```
 
+> El Nivel 3 muestra la diferencia fundamental de la Sesión V: el
+> `SagaOrchestrator` coordina llamadas síncronas entre Booking y Payment y
+> posee el conocimiento del workflow. Las líneas discontinuas representan
+> **acciones compensatorias**, no rollback de una transacción distribuida.
+
 ---
+
+# 🔄 Session V — Service-Based & Orchestrated Styles
+
+**Unidad de aprendizaje:** *Service-Based & Orchestrated Styles*  
+**Unidades temáticas:** Hybrid architectures, API Gateways y Saga workflows.  
+**Competencia:** Diseñar flujos resilientes entre múltiples servicios mediante
+Saga y acciones compensatorias, gestionando fallos parciales y priorizando la
+recuperación automática y la integridad de los datos.
+
+## 🎯 Actividad implementada
+
+> **Create a multi-service workflow (booking/payment/shipping) using the Saga
+> Pattern — Orchestration.**
+
+En QuickStay el caso equivalente es **Booking + Payment**, coordinados por un
+`SagaOrchestrator`. La solución conserva la arquitectura modular de las
+sesiones anteriores y prepara la futura extracción de cada módulo como
+servicio desplegable independiente.
+
+### 🏗️ Arquitectura de la Saga
+
+```mermaid
+graph LR
+    client["👤 Cliente"] --> api["API / SagaController<br/>POST /api/sagas/bookings"]
+    api --> orchestrator["🔄 Saga Orchestrator"]
+
+    orchestrator -->|"1. create pending"| booking["📅 Booking Service"]
+    booking -->|"PENDING_PAYMENT"| db1[("reservations")]
+
+    orchestrator -->|"2. authorize"| payment["💳 Payment Service"]
+    payment -->|"AUTHORIZED / FAILED"| db2[("payments")]
+
+    orchestrator -->|"3. confirm"| booking
+
+    orchestrator -.->|"compensate"| cancel["Booking.cancel()"]
+    orchestrator -.->|"compensate"| refund["Payment.refund()"]
+
+    orchestrator --> saga[("saga_executions")]
+
+    classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
+    classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
+    classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
+
+    class api,orchestrator,booking,payment,cancel,refund component;
+    class db1,db2,saga db;
+```
+
+## 🟢 Happy Path
+
+```mermaid
+stateDiagram-v2
+    [*] --> STARTED
+    STARTED --> RESERVATION_CREATED: Booking.reservePendingPayment()
+    RESERVATION_CREATED --> PAYMENT_AUTHORIZED: Payment.authorize()
+    PAYMENT_AUTHORIZED --> COMPLETED: Booking.confirm()
+    COMPLETED --> [*]
+```
+
+### Secuencia del workflow exitoso
+
+```mermaid
+sequenceDiagram
+    actor Client as Cliente
+    participant Saga as Saga Orchestrator
+    participant Booking as Booking Service
+    participant Payment as Payment Service
+
+    Client->>Saga: POST /api/sagas/bookings
+    Saga->>Booking: reservePendingPayment()
+    Booking-->>Saga: PENDING_PAYMENT
+    Saga->>Payment: authorize(amount)
+    Payment-->>Saga: AUTHORIZED
+    Saga->>Booking: confirm()
+    Booking-->>Saga: CONFIRMED
+    Saga-->>Client: COMPLETED
+```
+
+## 🔴 Partial Failure + Compensación
+
+```mermaid
+stateDiagram-v2
+    [*] --> STARTED
+    STARTED --> RESERVATION_CREATED: Booking.reservePendingPayment()
+    RESERVATION_CREATED --> PAYMENT_FAILED: Payment.authorize() rechaza
+    PAYMENT_FAILED --> COMPENSATING: Saga captura excepción
+    COMPENSATING --> COMPENSATED: Booking.cancel()
+    COMPENSATED --> [*]
+```
+
+Cuando el pago falla, la habitación no queda bloqueada por una reserva
+pendiente: el Orchestrator ejecuta `Booking.cancel()` como acción
+compensatoria.
+
+Si el pago ya fue autorizado y falla la confirmación posterior:
+
+```mermaid
+sequenceDiagram
+    participant Saga as Saga Orchestrator
+    participant Booking as Booking Service
+    participant Payment as Payment Service
+
+    Saga->>Booking: reservePendingPayment()
+    Booking-->>Saga: PENDING_PAYMENT
+    Saga->>Payment: authorize()
+    Payment-->>Saga: AUTHORIZED
+    Saga->>Booking: confirm()
+    Booking-->>Saga: ERROR
+    Saga->>Payment: refund()
+    Payment-->>Saga: REFUNDED
+    Saga->>Booking: cancel()
+    Booking-->>Saga: CANCELLED
+```
+
+## 📊 Estados persistidos
+
+| Componente | Estado normal | Estado ante compensación |
+|---|---|---|
+| **Booking** | `PENDING_PAYMENT → CONFIRMED` | `CANCELLED` |
+| **Payment** | `AUTHORIZED` | `REFUNDED` |
+| **Saga** | `STARTED → COMPLETED` | `COMPENSATED` |
+
+La consistencia es **eventual y basada en acciones compensatorias**. No se
+utiliza una transacción distribuida ACID entre Booking y Payment.
+
+## 🔌 API de la Saga
+
+### Crear Booking + Payment
+
+`POST /api/sagas/bookings`
+
+```json
+{
+  "reservation": {
+    "roomId": "33333333-3333-3333-3333-333333333333",
+    "guestFullName": "Ana Perez",
+    "guestEmail": "ana@example.com",
+    "checkIn": "2026-09-01",
+    "checkOut": "2026-09-05"
+  },
+  "paymentAmount": 1400.00,
+  "failPayment": false
+}
+```
+
+`paymentAmount` representa el total de la estadía y se calcula en el frontend
+como `pricePerNight × noches`.
+
+### Probar la compensación
+
+Enviar el mismo payload con:
+
+```json
+"failPayment": true
+```
+
+El `PaymentService` crea el intento con estado `FAILED`, el Orchestrator
+captura la excepción y ejecuta `Booking.cancel()`. La Saga queda persistida
+como `COMPENSATED`.
+
+### Consultar una Saga
+
+`GET /api/sagas/bookings/{sagaId}`
+
+Permite inspeccionar el estado persistido, el paso actual, la reserva
+relacionada y el último error registrado.
+
+## 🖥️ Evidencia visible en la UI
+
+La aplicación Angular incorpora el checkbox **“Simular fallo de pago”** en el
+flujo de reserva. Esto permite demostrar directamente:
+
+1. **Happy path:** Booking → Payment → Booking confirmation.
+2. **Partial failure:** Booking → Payment failure → automatic compensation.
+
+La respuesta muestra el `sagaId`, el estado de la Saga y el importe procesado.
+
+## 🧠 Decisiones de diseño de la Session V
+
+- **Orchestration:** el `SagaOrchestrator` conoce el orden del workflow y las
+  acciones compensatorias.
+- **Sin transacción distribuida:** cada bounded context mantiene su propia
+  operación local.
+- **Compensación explícita:** `Booking.cancel()` y `Payment.refund()` son
+  operaciones de negocio, no simples rollbacks de base de datos.
+- **Estados persistidos:** `saga_executions` permite auditar el progreso y
+  detectar dónde falló el proceso.
+- **Idempotencia básica:** Payment reutiliza un pago autorizado existente para
+  evitar duplicaciones en reintentos simples.
+- **Fallos parciales:** si Payment falla después de crear la reserva temporal,
+  Booking queda compensado automáticamente.
+- **Preparado para extracción:** `Booking`, `Payment` y `Saga` pueden
+  convertirse posteriormente en `booking-service`, `payment-service` y
+  `saga-orchestrator` independientes.
+- **RabbitMQ se conserva:** los eventos de confirmación/cancelación siguen
+  alimentando Notification de forma asíncrona, como se implementó en Sesión IV.
+
+## 📚 Documentación por sesión
+
+| Sesión | Arquitectura / foco | Documentación |
+|---|---|---|
+| III | Modular Monolith + Bounded Contexts | `docs/session-03-evaluation.md` |
+| IV | Enterprise Integration & Messaging | `docs/session-04-domain-events.md` · `docs/session-04-evaluation.md` |
+| V | Service-Based & Orchestrated Styles — Saga | `docs/session-05-saga-evaluation.md` |
 
 ## 🚀 Cómo levantar el entorno local
 
@@ -470,57 +716,24 @@ git tag -a v0.4-messaging -m "Session IV: Enterprise Integration & Messaging"
 git push origin main --tags
 ```
 
----
+Sesión V:
 
----
+```bash
+git checkout -b session-05-saga-orchestration
+git add .
+git commit -m "feat: add orchestration-based saga for booking and payment
 
-# Session V — Service-Based & Orchestrated Styles
+- add Payment bounded context with authorize/refund operations
+- add SagaExecution state and persistence
+- add SagaOrchestrator for Booking -> Payment -> Booking workflow
+- add compensating actions for payment and confirmation failures
+- expose POST/GET /api/sagas/bookings endpoints
+- add frontend failure simulation for Saga demonstration
+- add Session V architecture and C4 documentation"
+git push -u origin session-05-saga-orchestration
 
-La Session V agrega un **Saga Pattern por Orquestación** para el workflow de reserva y pago.
-
-### Flujo
-
-```text
-Cliente
-  |
-  v
-POST /api/sagas/bookings
-  |
-  v
-Saga Orchestrator
-  |
-  +--> Booking: PENDING_PAYMENT
-  |
-  +--> Payment: AUTHORIZED
-  |
-  +--> Booking: CONFIRMED
-  |
-  `--> fallo -> Payment.refund() + Booking.cancel()
+git checkout main
+git merge --no-ff session-05-saga-orchestration -m "merge: session 05 service-based and orchestrated styles"
+git tag -a v0.5-saga -m "Session V: Service-Based & Orchestrated Styles - Saga"
+git push origin main --tags
 ```
-
-### Endpoints de la Saga
-
-```text
-POST /api/sagas/bookings
-GET  /api/sagas/bookings/{sagaId}
-```
-
-Ejemplo de request:
-
-```json
-{
-  "reservation": {
-    "roomId": "33333333-3333-3333-3333-333333333333",
-    "guestFullName": "Ana Perez",
-    "guestEmail": "ana@example.com",
-    "checkIn": "2026-09-01",
-    "checkOut": "2026-09-05"
-  },
-  "paymentAmount": 1400.00,
-  "failPayment": false
-}
-```
-
-Para demostrar la compensación automática, cambiar `failPayment` a `true`. El orchestrator cancelará la reserva temporal y persistirá la Saga como `COMPENSATED`.
-
-La documentación técnica completa está en `docs/session-05-saga-evaluation.md`.
