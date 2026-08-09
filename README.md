@@ -7,7 +7,7 @@ reservar, pagar, gestionar check-in/out digital y recibir promociones — evoluc
 progresivamente su arquitectura a lo largo de las 8 sesiones del módulo
 *Microservices, Event-Driven and Cloud-Native*.
 
-\---
+---
 
 # 1era Actividad — Choose a Software Architecture Kata
 
@@ -48,7 +48,7 @@ Potentially millions of travelers across regions.
 * Cancellations may have different policies.
 * Future expansion includes multiple countries and currencies.
 
-\---
+---
 
 # 2da Actividad — Build the Monolith Core (Sesión II)
 
@@ -67,7 +67,7 @@ básico, dentro de una única transacción)
 * ⏳ Pago online, loyalty, promociones, check-in digital, notificaciones,
 integración con OTAs → planificado para sesiones posteriores
 
-\---
+---
 
 # 3ra Actividad — Structural Variation Styles (Sesión III)
 
@@ -131,7 +131,7 @@ código, todavía no de infraestructura (eso empieza en Sesión VI).
 consciente**, no eliminado del todo (se resuelve con eventos en Sesión IV
 y CQRS en Sesión VIII).
 
-\---
+---
 
 ## 📦 Tecnologías
 
@@ -143,7 +143,7 @@ y CQRS en Sesión VIII).
 |**Gestión de dependencias**|Gradle (backend) \& npm (frontend)|
 |**Control de versiones**|Git — rama + tag por sesión|
 
-\---
+---
 
 # 🏨 Arquitectura de Software (C4 Model)
 
@@ -176,7 +176,7 @@ graph TD
 ```
 
 > Los sistemas externos (OTAs, pagos, notificaciones) representan el estado
-> \*\*objetivo\*\* de QuickStay. En Sesión II todavía no hay integraciones reales
+> **objetivo** de QuickStay. En Sesión II todavía no hay integraciones reales
 > con ellos — se agregan en sesiones posteriores (IV en adelante).
 
 ## 📦 Nivel 2: Diagrama de Contenedores
@@ -258,14 +258,14 @@ graph TD
     class paymentMod,notifMod,loyaltyMod,checkinMod future;
 ```
 
-\---
+---
 
 ## 🚀 Cómo levantar el entorno local
 
-### 1\. Base de datos (PostgreSQL vía Docker)
+### 1. Base de datos (PostgreSQL vía Docker)
 
 > Nota: si ya tenés un PostgreSQL nativo corriendo en tu máquina (Windows/Mac),
-> puede ocupar el puerto 5432. Este proyecto usa el puerto \*\*5433\*\* en el host
+> puede ocupar el puerto 5432. Este proyecto usa el puerto **5433** en el host
 > para evitar ese conflicto (ver `infra/docker-compose.yml`).
 
 ```bash
@@ -277,7 +277,7 @@ docker ps   # confirmar que "quickstay-postgres" está Up
 Credenciales (definidas en `docker-compose.yml`): DB `quickstay`, user/pass
 `quickstay`/`quickstay`.
 
-### 2\. Backend
+### 2. Backend
 
 ```bash
 cd backend
@@ -306,7 +306,7 @@ Ejemplo:
 http://localhost:8080/api/rooms/search?city=La%20Paz\&checkIn=2026-09-01\&checkOut=2026-09-05\&maxPrice=600
 ```
 
-### 3\. Frontend
+### 3. Frontend
 
 ```bash
 cd frontend/quickstay-web
@@ -317,14 +317,14 @@ npm start
 Se levanta en `http://localhost:4200`, ya conectado al backend
 (`src/environments/environment.ts`).
 
-### 4\. Verificar
+### 4. Verificar
 
 * `http://localhost:4200` → formulario de búsqueda y listado de habitaciones
 disponibles, con opción de reservar.
 * `http://localhost:8080/api/rooms/search?...` → JSON con habitaciones (ver
 ejemplo arriba).
 
-\---
+---
 
 ## 🧪 Troubleshooting rápido
 
@@ -334,7 +334,7 @@ ejemplo arriba).
 |`Unable to determine Dialect without JDBC metadata`|Backend no logra conectar a la DB (mensaje real de Hibernate queda oculto)|Verificar `docker ps` y el puerto en `application.yml`|
 |Barra de Gradle se queda en 80-90%|Comportamiento normal de `bootRun` — el proceso queda vivo sirviendo peticiones|Buscar `Started QuickstayApplication` en el log|
 
-\---
+---
 
 ## 🗂️ Git — flujo por sesión
 
@@ -356,5 +356,5 @@ git tag -a v0.3-modular-monolith -m "Session III: Modular Monolith - Bounded Con
 git push origin main --tags
 ```
 
-\---
+---
 
