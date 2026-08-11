@@ -4,6 +4,8 @@ Con todo el sistema arriba (`docker compose up -d` desde `infra/`, o cada
 módulo con `./gradlew bootRun`):
 
 ```bash
+flutter clean
+flutter pub get
 flutter run
 ```
 
