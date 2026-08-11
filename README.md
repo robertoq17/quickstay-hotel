@@ -244,8 +244,7 @@ graph TD
         readSchema[("🔎 quickstay_read<br/><i>[Logical READ store]</i><br/>Availability projections")]
         broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events + colas de Notification e Inventory Projection."}}
 
-        paymentService["💳 QuickStay Payment Service<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Deployment unit independiente. Bounded Context Payment.
-API REST de autorización y refund."]
+        paymentService["💳 QuickStay Payment Service<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Deployment unit independiente. Bounded Context Payment.<br/>API REST de autorización y refund."]
         paymentDatabase[("🐘 PostgreSQL Payment DB<br/><i>[ContainerDb]</i><br/>payments — base dedicada y aislada del monolito.")]
     end
 
@@ -284,13 +283,18 @@ API REST de autorización y refund."]
     class paymentProvider,notificationProvider external;
 ```
 
-> **Evolución de Sesión VI → VII:** el frontend deja de hablarle directo al
-> backend (`8080`). Ahora todo pasa por el **API Gateway** (`8000`), que
-> decide según el path si la request va al monolito o al microservicio de
-> Payment. La llamada interna `Saga → Payment` (línea punteada "NO pasa por
-> el Gateway" en el diagrama) sigue siendo directa — el Gateway resuelve
-> tráfico norte-sur (cliente → sistema), no este-oeste (servicio → servicio).
-> Ver `docs/session-07-evaluation.md`.
+> **Evolución de Sesión VI → VII → VIII:** el frontend deja de hablarle
+> directo al backend (`8080`). Ahora todo pasa por el **API Gateway**
+> (`8000`), que decide según el path si la request va al monolito o al
+> microservicio de Payment. La llamada interna `Saga → Payment` (línea
+> punteada "NO pasa por el Gateway" en el diagrama) sigue siendo directa —
+> el Gateway resuelve tráfico norte-sur (cliente → sistema), no este-oeste
+> (servicio → servicio). Desde Sesión VIII, además, `QuickStay Backend` ya
+> no tiene una única fuente de datos homogénea: separa **write model**
+> (`quickstay_write`) de **read model** (`quickstay_read`) para las
+> consultas de disponibilidad — ambos siguen siendo schemas lógicos dentro
+> del mismo container PostgreSQL, no bases físicamente distintas. Ver
+> `docs/session-07-evaluation.md` y la sección CQRS más abajo.
 
 ### Cambios de la Sesión VI en el Nivel 2
 
@@ -705,6 +709,41 @@ independiente queda como evolución futura si el volumen lo justifica.
 No. La reserva continúa validándose contra el write model. El read model es una
 herramienta de consulta, no la autoridad para confirmar una reserva.
 
+---
+
+# 📱 Cliente Móvil (Flutter) — Demo completa con API Gateway
+
+No es una actividad formal del programa académico — se agregó para cubrir el
+requerimiento de la kata *"Support mobile access"* y, sobre todo, para hacer
+una demo completa donde el **API Gateway** (Sesión VII) atienda a un cliente
+real distinto del navegador.
+
+Vive en `mobile/`. Es un proyecto Flutter con 4 pantallas: búsqueda de
+habitaciones, reserva + pago (dispara el Saga de Sesión V), resultado
+(confirmado o compensado), y consulta de estado de un Saga por ID.
+
+**Setup e instrucciones completas en [`mobile/README.md`](mobile/README.md)**
+— incluye por qué el paquete no trae `android/`/`ios/` generados (se crean
+con `flutter create` para evitar problemas de versión), los dos ajustes
+nativos necesarios para permitir tráfico HTTP sin TLS, cómo configurar la
+URL del Gateway según emulador/simulador/celular físico, y un guion de demo
+paso a paso (incluyendo cómo forzar la compensación del Saga y cómo probar
+el Circuit Breaker de la ruta de Payment).
+
+### Por qué es un buen cierre de demo
+
+- Ejercita el **mismo backend** que el frontend Angular, pero sin pasar por
+  CORS (CORS es una restricción de navegador — un cliente HTTP nativo como
+  el de Flutter no está sujeto a ella). Buen contraste para explicar en la
+  presentación.
+- El toggle "Simular fallo de pago" en la pantalla de reserva dispara la
+  compensación del Saga en vivo — mismo mecanismo de Sesión V, ahora
+  visible desde un cliente mobile.
+- El botón de consulta de estado de Saga ejercita `GET /api/sagas/bookings/{id}`
+  independientemente del flujo de reserva, útil para mostrar que el estado
+  persiste server-side (tabla `saga_executions`) más allá de la sesión HTTP
+  que lo originó.
+
 # 📚 Documentación por sesión
 
 | Sesión | Arquitectura / foco | Documentación |
@@ -715,6 +754,7 @@ herramienta de consulta, no la autoridad para confirmar una reserva.
 | VI | Microservices Deep Dive — Payment extraction + Data Isolation | `docs/session-06-microservices-extraction.md` |
 | VII | Advanced Distributed Architectures — API Gateway + Circuit Breaker | `docs/session-07-evaluation.md` |
 | VIII | Cloud-Native Operations & Selection — CQRS | `docs/session-08-evaluation.md` |
+| — | Cliente Móvil Flutter (bonus, kata "Support mobile access") | `mobile/README.md` |
 
 ## 🚀 Cómo levantar el entorno local
 
@@ -996,7 +1036,7 @@ git commit -m "feat: split read and write models with CQRS
 - add Flyway V5 to create explicit quickstay_read projections
 - separate QuickStay persistence into quickstay_write and quickstay_read schemas
 - route availability queries exclusively to the READ schema
-- document Session VIII architecture, load profile, CQRS trade-offs and failure demo"
+- document Session VIII architecture, CQRS trade-offs and failure demo"
 git push -u origin session-08-cqrs
 
 git checkout main
