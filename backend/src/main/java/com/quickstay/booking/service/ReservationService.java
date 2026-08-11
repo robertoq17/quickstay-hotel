@@ -7,6 +7,7 @@ import com.quickstay.booking.dto.ReservationRequest;
 import com.quickstay.booking.dto.ReservationResponse;
 import com.quickstay.booking.event.ReservationCancelledEvent;
 import com.quickstay.booking.event.ReservationConfirmedEvent;
+import com.quickstay.booking.event.ReservationPendingPaymentEvent;
 import com.quickstay.booking.exception.RoomNotAvailableException;
 import com.quickstay.booking.repository.GuestRepository;
 import com.quickstay.booking.repository.ReservationRepository;
@@ -120,7 +121,16 @@ public class ReservationService {
 
         Reservation saved = reservationRepository.save(reservation);
 
-        if (status == ReservationStatus.CONFIRMED) {
+        if (status == ReservationStatus.PENDING_PAYMENT) {
+            eventPublisher.publishEvent(new ReservationPendingPaymentEvent(
+                    saved.getId(),
+                    saved.getRoomId(),
+                    guest.getFullName(),
+                    guest.getEmail(),
+                    saved.getCheckIn(),
+                    saved.getCheckOut()
+            ));
+        } else if (status == ReservationStatus.CONFIRMED) {
             eventPublisher.publishEvent(new ReservationConfirmedEvent(
                     saved.getId(),
                     saved.getRoomId(),

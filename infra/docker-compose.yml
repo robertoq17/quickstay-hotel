@@ -105,6 +105,21 @@ services:
       payment-service:
         condition: service_started
 
+  api-gateway:
+    build:
+      context: ../api-gateway
+      dockerfile: Dockerfile
+    container_name: quickstay-api-gateway
+    environment:
+      BACKEND_SERVICE_URL: http://backend:8082
+      PAYMENT_SERVICE_URL: http://payment-service:8081
+      GATEWAY_PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - backend
+      - payment-service
+
 volumes:
   pgdata:
   payment_pgdata:

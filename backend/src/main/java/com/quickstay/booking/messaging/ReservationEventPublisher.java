@@ -2,6 +2,7 @@ package com.quickstay.booking.messaging;
 
 import com.quickstay.booking.event.ReservationCancelledEvent;
 import com.quickstay.booking.event.ReservationConfirmedEvent;
+import com.quickstay.booking.event.ReservationPendingPaymentEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -27,6 +28,29 @@ import java.time.Instant;
 public class ReservationEventPublisher {
 
     private final RabbitTemplate rabbitTemplate;
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onReservationPendingPayment(ReservationPendingPaymentEvent event) {
+        ReservationIntegrationEvent message = new ReservationIntegrationEvent(
+                ReservationIntegrationEvent.TYPE_PENDING_PAYMENT,
+                event.reservationId(),
+                event.roomId(),
+                event.guestFullName(),
+                event.guestEmail(),
+                event.checkIn(),
+                event.checkOut(),
+                Instant.now()
+        );
+
+        log.info("Publishing {} to exchange={} routingKey={}",
+                message.eventType(), BookingMessagingConfig.RESERVATION_EXCHANGE,
+                BookingMessagingConfig.ROUTING_KEY_PENDING_PAYMENT);
+
+        rabbitTemplate.convertAndSend(
+                BookingMessagingConfig.RESERVATION_EXCHANGE,
+                BookingMessagingConfig.ROUTING_KEY_PENDING_PAYMENT,
+                message);
+    }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onReservationConfirmed(ReservationConfirmedEvent event) {

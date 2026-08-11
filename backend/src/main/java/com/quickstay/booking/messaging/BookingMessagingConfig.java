@@ -16,6 +16,7 @@ public class BookingMessagingConfig {
 
     public static final String RESERVATION_EXCHANGE = "quickstay.reservation-events";
     public static final String ROUTING_KEY_CONFIRMED = "reservation.confirmed";
+    public static final String ROUTING_KEY_PENDING_PAYMENT = "reservation.pending-payment";
     public static final String ROUTING_KEY_CANCELLED = "reservation.cancelled";
 
     @Bean

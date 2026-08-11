@@ -29,13 +29,22 @@ public class NotificationMessagingConfig {
     }
 
     @Bean
-    public Binding reservationNotificationBinding(
+    public Binding reservationNotificationConfirmedBinding(
             Queue reservationNotificationQueue,
             TopicExchange reservationEventsExchange
     ) {
-        // "reservation.*" cubre reservation.confirmed y reservation.cancelled
         return BindingBuilder.bind(reservationNotificationQueue)
                 .to(reservationEventsExchange)
-                .with("reservation.*");
+                .with("reservation.confirmed");
+    }
+
+    @Bean
+    public Binding reservationNotificationCancelledBinding(
+            Queue reservationNotificationQueue,
+            TopicExchange reservationEventsExchange
+    ) {
+        return BindingBuilder.bind(reservationNotificationQueue)
+                .to(reservationEventsExchange)
+                .with("reservation.cancelled");
     }
 }

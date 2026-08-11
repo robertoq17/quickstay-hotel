@@ -1,9 +1,8 @@
 package com.quickstay.inventory.service;
 
-import com.quickstay.inventory.domain.Room;
 import com.quickstay.inventory.dto.RoomAvailabilityResponse;
 import com.quickstay.inventory.dto.RoomSearchRequest;
-import com.quickstay.inventory.repository.RoomRepository;
+import com.quickstay.inventory.readmodel.RoomAvailabilityReadRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,30 +13,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RoomSearchService {
 
-    private final RoomRepository roomRepository;
+    private final RoomAvailabilityReadRepository readRepository;
 
     @Transactional(readOnly = true)
     public List<RoomAvailabilityResponse> search(RoomSearchRequest request) {
-        List<Room> rooms = roomRepository.findAvailableRooms(
+        return readRepository.search(
                 request.city(),
                 request.checkIn(),
                 request.checkOut(),
                 request.maxPrice()
-        );
-
-        return rooms.stream()
-                .map(this::toResponse)
-                .toList();
-    }
-
-    private RoomAvailabilityResponse toResponse(Room room) {
-        return new RoomAvailabilityResponse(
-                room.getId(),
-                room.getHotel().getName(),
-                room.getHotel().getCity(),
-                room.getRoomType(),
-                room.getPricePerNight(),
-                room.getCapacity()
         );
     }
 }

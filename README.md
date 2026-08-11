@@ -101,8 +101,7 @@ quickstay-hotel-platform/
 │
 ├── frontend/quickstay-web/           Angular 18 (standalone components) — sin cambios
 ├── infra/                            docker-compose (PostgreSQL) — sin cambios
-└── docs/
-    ├── session-02-evaluation.md
+└── docs/    
     └── session-03-evaluation.md      Revisión arquitectónica + justificación del refactor
 ```
 
@@ -183,7 +182,7 @@ completo del trade-off en `docs/session-04-evaluation.md`.
 
 | Capa | Tecnología |
 |------|------------|
-| **Backend** | Java 17, Spring Boot 3.3.2, Gradle 8.8 (Groovy DSL), Spring Data JPA, Spring AMQP, Flyway, Lombok, PostgreSQL driver |
+| **Backend** | Java 17, Spring Boot 3.3.2, Gradle 8.8 (Groovy DSL), Spring Data JPA/JDBC, Spring AMQP, Flyway, Lombok, PostgreSQL driver |
 | **Payment Service** | Java 17, Spring Boot 3.3.2, Gradle 8.8, Spring Data JPA, Flyway, PostgreSQL driver |
 | **Mensajería** | RabbitMQ 3 (management UI incluida) |
 | **Frontend** | Angular 18 (standalone components), TypeScript, SCSS |
@@ -195,12 +194,6 @@ completo del trade-off en `docs/session-04-evaluation.md`.
 
 # 🏨 Arquitectura de Software (C4 Model)
 
-Los diagramas C4 se mantienen con el mismo lenguaje visual de las sesiones
-anteriores: **azul para personas/sistemas/contenedores propios, gris para
-sistemas externos o componentes futuros, azul oscuro para persistencia y
-naranja para RabbitMQ**. La diferencia es que ahora reflejan el estado real
-hasta **Sesión V**, incluyendo Payment y el Saga Orchestrator.
-
 ## 📌 Nivel 1: Diagrama de Contexto
 
 ```mermaid
@@ -211,7 +204,7 @@ graph TD
     quickstay["🏨 QuickStay Platform<br/><i>[Sistema de Software]</i><br/>Gestiona disponibilidad, reservas, pagos, cancelaciones, notificaciones y workflows distribuidos."]
 
     otas["🌐 Agencias de Viajes Externas (OTAs)<br/><i>[Sistema Externo]</i><br/>Consultan disponibilidad y reservan en hoteles franquiciados o propios."]
-    paymentSystem["💳 Proveedor de Pago Externo<br/><i>[Sistema Externo]</i><br/>Pasarela real para autorizar y reembolsar transacciones.<br/>(Integración futura; Session V usa un Payment Service simulado.)"]
+    paymentSystem["💳 Proveedor de Pago Externo<br/><i>[Sistema Externo]</i><br/>Pasarela real para autorizar y reembolsar transacciones.<br/>(Integración futura; el Payment Service de Session VI es un microservicio simulado para la kata.)"]
     notificationService["✉️ Servicio de Notificaciones<br/><i>[Sistema Externo]</i><br/>Email/SMS/Push para confirmaciones y alertas."]
 
     traveler -->|"Busca, reserva, paga, check-in digital, solicita servicios"| quickstay
@@ -229,14 +222,14 @@ graph TD
     class otas,paymentSystem,notificationService external;
 ```
 
-> **Estado a Sesión V:** QuickStay ya contiene internamente los bounded
-> contexts/módulos `Booking`, `Payment`, `Saga` y `Notification`. El proveedor
-> de pago externo del Nivel 1 continúa siendo un sistema de integración
-> futura: para demostrar la actividad de Saga, `PaymentService` simula ese
-> proveedor dentro del backend. La notificación también mantiene un stub de
-> logging detrás de RabbitMQ.
+> **Estado a Sesión VIII:** QuickStay mantiene los bounded contexts/módulos
+> `Inventory`, `Booking`, `Payment`, `Saga` y `Notification`. Payment ya es un
+> microservicio independiente, el API Gateway es el único punto de entrada
+> público y Inventory separa el modelo de lectura del modelo de escritura
+> mediante CQRS. El proveedor de pago externo y el canal real de
+> email/SMS/Push continúan como integraciones futuras.
 
-## 📦 Nivel 2: Diagrama de Contenedores (Sesión VI)
+## 📦 Nivel 2: Diagrama de Contenedores (Sesión VIII)
 
 ```mermaid
 graph TD
@@ -244,9 +237,12 @@ graph TD
 
     subgraph SystemBoundary["QuickStay Hotel System"]
         frontend["📱 QuickStay Frontend<br/><i>[Container: Angular 18]</i><br/>Búsqueda, captura de huésped y ejecución del workflow Booking + Payment."]
-        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith: Inventory, Booking, Saga Orchestrator y Notification."]
-        database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>hotels, rooms, guests, reservations, saga_executions.")]
-        broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events + cola de Notification."}}
+        gateway["🚪 API Gateway<br/><i>[Container: Spring Cloud Gateway]</i><br/>Único punto de entrada. Enruta hacia backend o payment-service."]
+        backend["⚙️ QuickStay Backend<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Modular Monolith: Inventory + CQRS, Booking, Saga Orchestrator y Notification."]
+        database[("🐘 PostgreSQL<br/><i>[ContainerDb]</i><br/>QuickStay persistence host")]
+        writeSchema[("📝 quickstay_write<br/><i>[Logical WRITE store]</i><br/>Room, Hotel, Guest, Reservation, Saga state")]
+        readSchema[("🔎 quickstay_read<br/><i>[Logical READ store]</i><br/>Availability projections")]
+        broker{{"🐰 RabbitMQ<br/><i>[Container: Message Broker]</i><br/>exchange quickstay.reservation-events + colas de Notification e Inventory Projection."}}
 
         paymentService["💳 QuickStay Payment Service<br/><i>[Container: Java 17, Spring Boot, Gradle]</i><br/>Deployment unit independiente. Bounded Context Payment.
 API REST de autorización y refund."]
@@ -257,34 +253,44 @@ API REST de autorización y refund."]
     notificationProvider["✉️ Email/SMS/Push Provider<br/><i>[External System]</i><br/>Canal externo futuro."]
 
     user -->|"Usa [HTTP]"| frontend
-    frontend -->|"Consume REST API [JSON/HTTP]"| backend
-    backend -->|"JDBC"| database
+    frontend -->|"Toda request pasa por acá [JSON/HTTP]"| gateway
+    gateway -->|"/api/rooms/**<br/>/api/reservations/**<br/>/api/sagas/**"| backend
+    gateway -->|"/api/payments/**<br/>[+ Circuit Breaker]"| paymentService
+
+    backend -->|"JPA/JDBC write"| writeSchema
+    backend -->|"JDBC read"| readSchema
+    writeSchema -.->|"schema in same PostgreSQL container"| database
+    readSchema -.->|"schema in same PostgreSQL container"| database
     backend -->|"Publica eventos [AMQP]"| broker
     broker -->|"Entrega eventos [AMQP]"| backend
 
-    backend -->|"REST /api/payments [HTTP]"| paymentService
+    backend -->|"REST /api/payments [HTTP directo,<br/>NO pasa por el Gateway]"| paymentService
     paymentService -->|"JDBC"| paymentDatabase
     paymentService -.->|"Provider API<br/>(futuro)"| paymentProvider
     backend -.->|"Notification API<br/>(futuro)"| notificationProvider
 
     classDef person fill:#08427b,color:#fff,stroke:#073b6f,stroke-width:2px;
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
+    classDef gateway fill:#7b2d8e,color:#fff,stroke:#5c2069,stroke-width:2px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
     classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
     classDef external fill:#999999,color:#fff,stroke:#666666,stroke-width:2px;
 
     class user person;
     class frontend,backend,paymentService container;
-    class database,paymentDatabase db;
+    class gateway gateway;
+    class database,writeSchema,readSchema,paymentDatabase db;
     class broker broker;
     class paymentProvider,notificationProvider external;
 ```
 
-> **Evolución de Sesión V → VI:** `Payment` deja de ser un módulo interno del
-> `QuickStay Backend` y pasa a un **deployment unit independiente**. Su base
-> `quickstay_payment` vive en otra instancia PostgreSQL (`5434`) y no comparte
-> tablas con la base del monolito (`5433`). El `SagaOrchestrator` conserva la
-> coordinación, pero ahora cruza el límite de proceso mediante REST.
+> **Evolución de Sesión VI → VII:** el frontend deja de hablarle directo al
+> backend (`8080`). Ahora todo pasa por el **API Gateway** (`8000`), que
+> decide según el path si la request va al monolito o al microservicio de
+> Payment. La llamada interna `Saga → Payment` (línea punteada "NO pasa por
+> el Gateway" en el diagrama) sigue siendo directa — el Gateway resuelve
+> tráfico norte-sur (cliente → sistema), no este-oeste (servicio → servicio).
+> Ver `docs/session-07-evaluation.md`.
 
 ### Cambios de la Sesión VI en el Nivel 2
 
@@ -296,41 +302,75 @@ API REST de autorización y refund."]
   `V4__extract_payment_context.sql`.
 - La comunicación `Saga → Payment` pasa a ser **REST/HTTP**.
 - La compensación `refund` sigue siendo parte del workflow Saga.
-- No se introduce un API Gateway artificial: el objetivo de esta sesión es la
-  extracción física de un bounded context, no agregar infraestructura que la
-  actividad no exige.
 
-## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging + Saga + Extracted Payment
+### Cambios de la Sesión VII en el Nivel 2
+
+- Nace **`api-gateway/`** (Spring Cloud Gateway), único punto de entrada
+  público en el puerto `8000`.
+- El **frontend** ahora apunta a `http://localhost:8000` en vez de
+  `http://localhost:8080` (`environment.ts`).
+- Rutas hacia el monolito (`/api/rooms/**`, `/api/reservations/**`,
+  `/api/sagas/**`): sin Circuit Breaker — si el monolito cae, cae todo el
+  sistema de todas formas.
+- Ruta hacia Payment (`/api/payments/**`): **con Circuit Breaker**
+  (Resilience4j) — Payment es el componente aislado con mayor probabilidad
+  de fallar de forma independiente.
+- CORS se centraliza en el Gateway (`spring.cloud.gateway.globalcors`); no se
+  duplica el header `Access-Control-Allow-Origin` en el backend.
+
+### Cambios de la Sesión VIII en el Nivel 2
+
+- Inventory adopta **CQRS explícito** dentro del mismo deployable `quickstay-backend`.
+- PostgreSQL contiene dos **schemas lógicos independientes**: `quickstay_write` y
+  `quickstay_read`.
+- El WRITE model contiene el estado transaccional de dominio; el READ model contiene
+  proyecciones denormalizadas para disponibilidad.
+- RabbitMQ distribuye los eventos de Booking hacia la proyección de Inventory.
+- La búsqueda usa exclusivamente `RoomAvailabilityReadRepository` + `JdbcTemplate`
+  sobre `quickstay_read`; no consulta repositorios JPA del WRITE model.
+- La separación física de servidor/base queda como evolución futura si la carga lo
+  justifica; la separación de modelos ya es explícita y verificable en PostgreSQL.
+
+## 🧩 Nivel 3: Diagrama de Componentes — Bounded Contexts + Messaging + Saga + CQRS + Extracted Payment + API Gateway
 
 ```mermaid
 graph TD
     frontend["📱 QuickStay Frontend<br/><i>[Angular]</i>"]
-    database[("🐘 PostgreSQL<br/>QuickStay DB")]
-    paymentDatabase[("🐘 PostgreSQL<br/>Payment DB")]
+    postgres[("🐘 PostgreSQL<br/><i>[Physical DB]</i>")]
+    writeDb[("📝 quickstay_write<br/><i>[WRITE model]</i><br/>Room / Hotel / Guest / Reservation / Saga")]
+    readDb[("🔎 quickstay_read<br/><i>[READ model]</i><br/>Availability projections")]
+    paymentDatabase[("🐘 PostgreSQL<br/><i>[Payment DB]</i>")]
     broker{{"🐰 RabbitMQ<br/>exchange: quickstay.reservation-events"}}
 
+    subgraph Gateway["🚪 API Gateway — único punto de entrada (8000)"]
+        gwRoutes["GatewayRoutesConfig<br/>RouteLocatorBuilder (Java DSL)"]
+        gwFallback["FallbackController<br/>/fallback/payments"]
+    end
+
     subgraph Backend["QuickStay Backend — Modular Monolith"]
-        subgraph Inventory["📦 Inventory Bounded Context"]
+        subgraph Inventory["📦 Inventory Bounded Context — CQRS"]
             invWeb["RoomSearchController"]
-            invService["RoomSearchService"]
-            invRepo["Hotel/RoomRepository"]
+            invService["RoomSearchService<br/>READ use case"]
+            invReadRepo["RoomAvailabilityReadRepository<br/>JdbcTemplate"]
+            invProjection["InventoryAvailabilityProjectionListener<br/>@RabbitListener"]
+            invWriteRepo["RoomRepository<br/>WRITE model"]
             invDomain["Hotel, Room"]
         end
 
         subgraph Booking["📅 Booking Bounded Context"]
             bookWeb["ReservationController"]
-            bookService["ReservationService<br/>reserve / confirm / cancel"]
+            bookService["ReservationService<br/>reserve / pending / confirm / cancel"]
             bookEvent["ApplicationEventPublisher<br/>(in-memory bus)"]
-            bookPublisher["ReservationEventPublisher<br/>(AFTER_COMMIT)"]
-            bookRepo["Guest/ReservationRepository"]
+            bookPublisher["ReservationEventPublisher<br/>AFTER_COMMIT"]
+            bookRepo["Guest/ReservationRepository<br/>WRITE model"]
             bookDomain["Guest, Reservation<br/>PENDING_PAYMENT / CONFIRMED / CANCELLED"]
         end
 
         subgraph Saga["🔄 Saga Bounded Context"]
             sagaWeb["SagaController<br/>POST/GET /api/sagas/bookings"]
             sagaOrchestrator["SagaOrchestrator<br/>workflow state machine"]
-            paymentClient["PaymentServiceClient<br/>REST/HTTP"]
-            sagaRepo["SagaExecutionRepository"]
+            paymentClient["PaymentServiceClient<br/>REST/HTTP — directo, NO por el Gateway"]
+            sagaRepo["SagaExecutionRepository<br/>WRITE model"]
             sagaDomain["SagaExecution<br/>STARTED / COMPLETED / COMPENSATED"]
         end
 
@@ -346,11 +386,18 @@ graph TD
         paymentDomain["Payment<br/>AUTHORIZED / FAILED / REFUNDED"]
     end
 
-    frontend -->|"Busca disponibilidad"| invWeb
-    frontend -->|"Ejecuta Booking + Payment Saga"| sagaWeb
+    frontend -->|"HTTP"| gwRoutes
+    gwRoutes -->|"/api/rooms/**"| invWeb
+    gwRoutes -->|"/api/reservations/**"| bookWeb
+    gwRoutes -->|"/api/sagas/**"| sagaWeb
+    gwRoutes -->|"/api/payments/** + Circuit Breaker"| paymentWeb
+    gwRoutes -.->|"breaker abierto"| gwFallback
 
-    invWeb --> invService --> invRepo --> invDomain
-    bookWeb --> bookService --> bookRepo --> bookDomain
+    invWeb --> invService --> invReadRepo --> readDb
+    invProjection -->|"materializa"| readDb
+    invWriteRepo --> invDomain --> writeDb
+
+    bookWeb --> bookService --> bookRepo --> writeDb
     sagaWeb --> sagaOrchestrator
     sagaOrchestrator -->|"1. create pending"| bookService
     sagaOrchestrator -->|"2. authorize"| paymentClient
@@ -358,463 +405,316 @@ graph TD
     sagaOrchestrator -.->|"compensate: cancel"| bookService
     sagaOrchestrator -.->|"compensate: refund"| paymentClient
     sagaOrchestrator --> sagaRepo --> sagaDomain
+    sagaRepo --> writeDb
 
     paymentClient -->|"POST /authorize"| paymentWeb
     paymentClient -->|"POST /refund"| paymentWeb
     paymentWeb --> paymentApp --> paymentRepo --> paymentDomain
+    paymentRepo --> paymentDatabase
 
-    invRepo -->|"JDBC"| database
-    bookRepo -->|"JDBC"| database
-    sagaRepo -->|"JDBC"| database
-    paymentRepo -->|"JDBC"| paymentDatabase
-
-    bookService -.->|"lee: ¿existe la room?"| invRepo
-    invRepo -.->|"subquery cross-domain<br/>(acoplamiento pendiente)"| bookDomain
-
+    bookService -.->|"write validation: roomId"| invWriteRepo
     bookService -->|"publishEvent()"| bookEvent
     bookEvent -->|"AFTER_COMMIT"| bookPublisher
-    bookPublisher -->|"convertAndSend()"| broker
-    broker -->|"@RabbitListener"| notifListener
+    bookPublisher -->|"pending / confirmed / cancelled"| broker
+    broker -->|"projection queue"| invProjection
+    broker -->|"notification queue"| notifListener
+
+    writeDb -.->|"logical schema in same PostgreSQL"| postgres
+    readDb -.->|"logical schema in same PostgreSQL"| postgres
 
     classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
     classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
     classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
     classDef broker fill:#ff8c00,color:#fff,stroke:#cc7000,stroke-width:2px;
+    classDef gateway fill:#7b2d8e,color:#fff,stroke:#5c2069,stroke-width:2px;
 
     class frontend container;
-    class database,paymentDatabase db;
+    class postgres,writeDb,readDb,paymentDatabase db;
     class broker broker;
-    class invWeb,invService,invRepo,invDomain,bookWeb,bookService,bookEvent,bookPublisher,bookRepo,bookDomain,sagaWeb,sagaOrchestrator,paymentClient,sagaRepo,sagaDomain,notifListener,paymentWeb,paymentApp,paymentRepo,paymentDomain component;
+    class gwRoutes,gwFallback gateway;
+    class invWeb,invService,invReadRepo,invProjection,invWriteRepo,invDomain,bookWeb,bookService,bookEvent,bookPublisher,bookRepo,bookDomain,sagaWeb,sagaOrchestrator,paymentClient,sagaRepo,sagaDomain,notifListener,paymentWeb,paymentApp,paymentRepo,paymentDomain component;
 ```
 
-> **Bounded Context:** Payment ya no comparte entidades, repositorios ni
-> tablas con Booking. El único contrato entre ambos contextos es la API del
-> `Payment Service`, consumida por `PaymentServiceClient`. La `reservationId`
-> se intercambia como identificador de negocio, sin FK física entre bases.
+> **CQRS (Sesión VIII):** Inventory ya no resuelve la disponibilidad leyendo el
+> modelo JPA de `Room` y cruzándolo con `Reservation`. El caso de uso de búsqueda
+> usa exclusivamente el read model denormalizado. El write model sigue siendo la
+> autoridad para validar y persistir reservas.
+>
+> **Proyección asíncrona:** Booking publica `RESERVATION_PENDING_PAYMENT`,
+> `RESERVATION_CONFIRMED` y `RESERVATION_CANCELLED` después del commit. La cola
+> `inventory.room-availability-projection` actualiza las tablas de lectura.
+> Notification solo recibe confirmaciones y cancelaciones, no el evento temporal
+> de pago pendiente.
+>
+> **Escalabilidad:** la separación lógica permite evolucionar el read side hacia
+> réplicas o una base especializada si el perfil de consultas lo exige, sin
+> convertir todavía esa complejidad en infraestructura obligatoria.
+>
+> **Bounded Context:** Payment continúa sin compartir entidades, repositorios ni
+> tablas con Booking. Inventory y Booking siguen dentro del mismo deployable, pero
+> la lectura de disponibilidad queda desacoplada mediante el modelo de consulta.
 
-# 🔄 Session V — Service-Based & Orchestrated Styles
-
-**Unidad de aprendizaje:** *Service-Based & Orchestrated Styles*  
-**Unidades temáticas:** Hybrid architectures, API Gateways y Saga workflows.  
-**Competencia:** Diseñar flujos resilientes entre múltiples servicios mediante
-Saga y acciones compensatorias, gestionando fallos parciales y priorizando la
-recuperación automática y la integridad de los datos.
+# 🚪 Session VII — Advanced Distributed Architectures: API Gateway
 
 ## 🎯 Actividad implementada
 
-> **Create a multi-service workflow (booking/payment/shipping) using the Saga
-> Pattern — Orchestration.**
+*Deploy an API Gateway to act as the single entry point for clients,
+routing incoming requests seamlessly to either the new microservice or the
+remaining monolith.*
 
-En QuickStay el caso equivalente es **Booking + Payment**, coordinados por un
-`SagaOrchestrator`. La solución conserva la arquitectura modular de las
-sesiones anteriores y prepara la futura extracción de cada módulo como
-servicio desplegable independiente.
+Nace **`api-gateway/`** — un tercer deployable (Spring Cloud Gateway,
+puerto `8000`), que se convierte en el único punto de entrada público del
+sistema. El frontend deja de hablarle directo al backend.
 
-### 🏗️ Arquitectura de la Saga
+## 🗺️ Rutas configuradas
 
-```mermaid
-graph LR
-    client["👤 Cliente"] --> api["API / SagaController<br/>POST /api/sagas/bookings"]
-    api --> orchestrator["🔄 Saga Orchestrator"]
-
-    orchestrator -->|"1. create pending"| booking["📅 Booking Service"]
-    booking -->|"PENDING_PAYMENT"| db1[("reservations")]
-
-    orchestrator -->|"2. authorize"| payment["💳 Payment Service"]
-    payment -->|"AUTHORIZED / FAILED"| db2[("payments")]
-
-    orchestrator -->|"3. confirm"| booking
-
-    orchestrator -.->|"compensate"| cancel["Booking.cancel()"]
-    orchestrator -.->|"compensate"| refund["Payment.refund()"]
-
-    orchestrator --> saga[("saga_executions")]
-
-    classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
-    classDef component fill:#85bbf0,color:#000,stroke:#5d82a8,stroke-width:1px;
-    classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
-
-    class api,orchestrator,booking,payment,cancel,refund component;
-    class db1,db2,saga db;
-```
-
-## 🟢 Happy Path
-
-```mermaid
-stateDiagram-v2
-    [*] --> STARTED
-    STARTED --> RESERVATION_CREATED: Booking.reservePendingPayment()
-    RESERVATION_CREATED --> PAYMENT_AUTHORIZED: Payment.authorize()
-    PAYMENT_AUTHORIZED --> COMPLETED: Booking.confirm()
-    COMPLETED --> [*]
-```
-
-### Secuencia del workflow exitoso
-
-```mermaid
-sequenceDiagram
-    actor Client as Cliente
-    participant Saga as Saga Orchestrator
-    participant Booking as Booking Service
-    participant Payment as Payment Service
-
-    Client->>Saga: POST /api/sagas/bookings
-    Saga->>Booking: reservePendingPayment()
-    Booking-->>Saga: PENDING_PAYMENT
-    Saga->>Payment: authorize(amount)
-    Payment-->>Saga: AUTHORIZED
-    Saga->>Booking: confirm()
-    Booking-->>Saga: CONFIRMED
-    Saga-->>Client: COMPLETED
-```
-
-## 🔴 Partial Failure + Compensación
-
-```mermaid
-stateDiagram-v2
-    [*] --> STARTED
-    STARTED --> RESERVATION_CREATED: Booking.reservePendingPayment()
-    RESERVATION_CREATED --> PAYMENT_FAILED: Payment.authorize() rechaza
-    PAYMENT_FAILED --> COMPENSATING: Saga captura excepción
-    COMPENSATING --> COMPENSATED: Booking.cancel()
-    COMPENSATED --> [*]
-```
-
-Cuando el pago falla, la habitación no queda bloqueada por una reserva
-pendiente: el Orchestrator ejecuta `Booking.cancel()` como acción
-compensatoria.
-
-Si el pago ya fue autorizado y falla la confirmación posterior:
-
-```mermaid
-sequenceDiagram
-    participant Saga as Saga Orchestrator
-    participant Booking as Booking Service
-    participant Payment as Payment Service
-
-    Saga->>Booking: reservePendingPayment()
-    Booking-->>Saga: PENDING_PAYMENT
-    Saga->>Payment: authorize()
-    Payment-->>Saga: AUTHORIZED
-    Saga->>Booking: confirm()
-    Booking-->>Saga: ERROR
-    Saga->>Payment: refund()
-    Payment-->>Saga: REFUNDED
-    Saga->>Booking: cancel()
-    Booking-->>Saga: CANCELLED
-```
-
-## 📊 Estados persistidos
-
-| Componente | Estado normal | Estado ante compensación |
+| Path | Destino | Circuit Breaker |
 |---|---|---|
-| **Booking** | `PENDING_PAYMENT → CONFIRMED` | `CANCELLED` |
-| **Payment** | `AUTHORIZED` | `REFUNDED` |
-| **Saga** | `STARTED → COMPLETED` | `COMPENSATED` |
-
-La consistencia es **eventual y basada en acciones compensatorias**. No se
-utiliza una transacción distribuida ACID entre Booking y Payment.
-
-## 🔌 API de la Saga
-
-### Crear Booking + Payment
-
-`POST /api/sagas/bookings`
-
-```json
-{
-  "reservation": {
-    "roomId": "33333333-3333-3333-3333-333333333333",
-    "guestFullName": "Ana Perez",
-    "guestEmail": "ana@example.com",
-    "checkIn": "2026-09-01",
-    "checkOut": "2026-09-05"
-  },
-  "paymentAmount": 1400.00,
-  "failPayment": false
-}
-```
-
-`paymentAmount` representa el total de la estadía y se calcula en el frontend
-como `pricePerNight × noches`.
-
-### Probar la compensación
-
-Enviar el mismo payload con:
-
-```json
-"failPayment": true
-```
-
-El `PaymentService` crea el intento con estado `FAILED`, el Orchestrator
-captura la excepción y ejecuta `Booking.cancel()`. La Saga queda persistida
-como `COMPENSATED`.
-
-### Consultar una Saga
-
-`GET /api/sagas/bookings/{sagaId}`
-
-Permite inspeccionar el estado persistido, el paso actual, la reserva
-relacionada y el último error registrado.
-
-## 🖥️ Evidencia visible en la UI
-
-La aplicación Angular incorpora el checkbox **“Simular fallo de pago”** en el
-flujo de reserva. Esto permite demostrar directamente:
-
-1. **Happy path:** Booking → Payment → Booking confirmation.
-2. **Partial failure:** Booking → Payment failure → automatic compensation.
-
-La respuesta muestra el `sagaId`, el estado de la Saga y el importe procesado.
-
-## 🧠 Decisiones de diseño de la Session V
-
-- **Orchestration:** el `SagaOrchestrator` conoce el orden del workflow y las
-  acciones compensatorias.
-- **Sin transacción distribuida:** cada bounded context mantiene su propia
-  operación local.
-- **Compensación explícita:** `Booking.cancel()` y `Payment.refund()` son
-  operaciones de negocio, no simples rollbacks de base de datos.
-- **Estados persistidos:** `saga_executions` permite auditar el progreso y
-  detectar dónde falló el proceso.
-- **Idempotencia básica:** Payment reutiliza un pago autorizado existente para
-  evitar duplicaciones en reintentos simples.
-- **Fallos parciales:** si Payment falla después de crear la reserva temporal,
-  Booking queda compensado automáticamente.
-- **Preparado para extracción:** `Booking`, `Payment` y `Saga` pueden
-  convertirse posteriormente en `booking-service`, `payment-service` y
-  `saga-orchestrator` independientes.
-- **RabbitMQ se conserva:** los eventos de confirmación/cancelación siguen
-  alimentando Notification de forma asíncrona, como se implementó en Sesión IV.
-
-## 🔬 Session VI — Microservices Deep Dive
-
-## 🎯 Actividad implementada
-
-**Proyecto:** extraer físicamente un dominio modular a una unidad de despliegue
-independiente con una instancia de base de datos dedicada y aislada.
-
-Se seleccionó el **Payment Bounded Context**, porque ya estaba delimitado en
-la Sesión V y participa directamente en el workflow Saga. La extracción evita
-convertir la sesión en una reescritura completa del sistema: se aplica el
-principio de **strangler extraction**, preservando Booking y Saga dentro del
-monolito mientras Payment obtiene su propio proceso y almacenamiento.
-
-### 🧱 Resultado arquitectónico
-
-```mermaid
-flowchart LR
-    frontend[QuickStay Frontend] --> backend[QuickStay Backend<br/>8080]
-    backend -->|REST /authorize<br/>REST /refund| payment[Payment Service<br/>8081]
-    backend --> db1[(QuickStay DB<br/>5433)]
-    payment --> db2[(Payment DB<br/>5434)]
-
-    classDef container fill:#1168bd,color:#fff,stroke:#0e569e,stroke-width:2px;
-    classDef db fill:#336791,color:#fff,stroke:#205ba8,stroke-width:2px;
-    class frontend,backend,payment container;
-    class db1,db2 db;
-```
-
-### 🔐 Data Isolation
-
-| Antes (Sesión V) | Después (Sesión VI) |
-|---|---|
-| `payments` dentro de `quickstay` | `payments` dentro de `quickstay_payment` |
-| Backend accedía directamente a `PaymentRepository` | Backend usa `PaymentServiceClient` |
-| Una sola instancia PostgreSQL | Dos instancias PostgreSQL |
-| Mismo proceso JVM | Dos procesos JVM desplegables |
-| FK `payments.reservation_id → reservations.id` | Solo `reservationId` como identificador de negocio |
-
-### 🔄 Flujo distribuido
-
-```mermaid
-sequenceDiagram
-    actor U as Usuario
-    participant F as Frontend
-    participant B as QuickStay Backend
-    participant P as Payment Service
-    participant QB as QuickStay DB
-    participant PB as Payment DB
-
-    U->>F: Crear Booking + Payment
-    F->>B: POST /api/sagas/bookings
-    B->>QB: Crear reservation PENDING_PAYMENT
-    B->>P: POST /api/payments/authorize
-    P->>PB: INSERT payments
-    PB-->>P: Payment AUTHORIZED
-    P-->>B: PaymentResponse
-    B->>QB: Confirm reservation
-    B-->>F: Saga COMPLETED
-
-    Note over B,P: Si falla una etapa posterior
-    B->>P: POST /api/payments/{reservationId}/refund
-    P->>PB: UPDATE payment = REFUNDED
-    P-->>B: PaymentResponse
-    B->>QB: Cancel reservation
-    B-->>F: Saga COMPENSATED
-```
-
-## 🧭 Bounded Context extraído: Payment
-
-El nuevo `payment-service` contiene exclusivamente:
-
-- `Payment` y `PaymentStatus`.
-- `PaymentRepository`.
-- `PaymentService`.
-- `PaymentController`.
-- DTOs propios del contexto.
-- Flyway propio (`payment-service/src/main/resources/db/migration`).
-- Configuración propia de datasource y puerto.
-
-El monolito ya **no contiene** el paquete `com.quickstay.payment`. Esto es
-importante: la extracción es física y no solamente un cambio cosmético de
-paquetes.
-
-## 🔌 API del Payment Service
-
-### Autorizar pago
-
-`POST http://localhost:8081/api/payments/authorize`
-
-```json
-{
-  "reservationId": "<UUID>",
-  "amount": 450.00,
-  "failPayment": false
-}
-```
-
-### Reembolsar pago
-
-`POST http://localhost:8081/api/payments/{reservationId}/refund`
-
-El endpoint es idempotente para pagos que ya estén en `REFUNDED`.
-
-### Health check
-
-`GET http://localhost:8081/api/payments/health`
-
-## 🗄️ Bases de datos aisladas
-
-### QuickStay DB — `5433`
-
-Contiene los datos de `Inventory`, `Booking` y `Saga`, incluyendo:
-
-- `hotels`
-- `rooms`
-- `guests`
-- `reservations`
-- `saga_executions`
-
-La migración `V4__extract_payment_context.sql` elimina la tabla `payments` del
-esquema del monolito.
-
-### Payment DB — `5434`
-
-Contiene únicamente el almacenamiento del Payment Service:
-
-- `payments`
-
-No existe FK física hacia `reservations`. El aislamiento entre bounded
-contexts se mantiene mediante el `reservationId` intercambiado por API.
-
-## 🐳 Ejecución local
-
-### 1. Levantar infraestructura
-
-Desde `infra/`:
-
-```bash
-docker compose up -d
-```
-
-Se levantan dos PostgreSQL independientes:
-
-- QuickStay DB → `localhost:5433`
-- Payment DB → `localhost:5434`
-- RabbitMQ → `localhost:5672`
-
-### 2. Levantar QuickStay Backend
-
-```bash
-cd backend
-./gradlew bootRun
-```
-
-Queda disponible en `http://localhost:8080`.
-
-### 3. Levantar Payment Service
-
-En otra terminal:
-
-```bash
-cd payment-service
-./gradlew bootRun
-```
-
-Queda disponible en `http://localhost:8081`.
-
-Si se requiere otra URL:
-
-```bash
-PAYMENT_SERVICE_URL=http://host:8081 ./gradlew bootRun
-```
-
-## 🧪 Evidencia de la extracción
-
-Para comprobar que la separación es real:
-
-1. Arrancar ambas aplicaciones.
-2. Ejecutar un Booking + Payment desde el frontend.
-3. Verificar que `saga_executions` se crea en QuickStay DB.
-4. Verificar que `payments` se crea en Payment DB.
-5. Detener `payment-service` y repetir la operación: el Saga detectará el fallo
-   parcial y ejecutará la compensación de Booking.
-6. Arrancar nuevamente Payment Service y comprobar que la siguiente operación
-   funciona sin modificar el backend.
-
-## 🧠 Decisiones de diseño de la Session VI
-
-### ¿Por qué extraer Payment?
-
-Es el bounded context más natural para una primera extracción: tiene límites
-claros, persistencia propia y un contrato sencillo. Además, ya participa en la
-Saga de Session V, por lo que la transición demuestra una consecuencia real de
-pasar de modular monolith a microservice.
-
-### ¿Por qué REST y no RabbitMQ?
-
-La Saga actual requiere una respuesta inmediata para saber si la autorización
-fue exitosa antes de confirmar la reserva. REST mantiene esa semántica síncrona
-y hace visible el nuevo límite de despliegue. RabbitMQ continúa reservado para
-la integración asíncrona de notificaciones.
-
-### ¿Y CQRS?
-
-La competencia de la unidad menciona CQRS, pero la actividad práctica de esta
-sesión exige específicamente **extraer un dominio con deployment y base
-aislados**. No se introduce CQRS artificialmente donde el perfil de carga no lo
-justifica. La separación física deja preparado el terreno para que una futura
-optimización de lecturas pueda usar un modelo/query store independiente si la
-telemetría real demuestra esa necesidad.
+| `/api/rooms/**` | `quickstay-backend` | No |
+| `/api/reservations/**` | `quickstay-backend` | No |
+| `/api/sagas/**` | `quickstay-backend` | No |
+| `/api/payments/**` | `quickstay-payment-service` | **Sí** (Resilience4j) |
+
+Configuración de rutas en `api-gateway/src/main/java/com/quickstay/gateway/config/GatewayRoutesConfig.java`
+(DSL Java de Spring Cloud Gateway, vía `RouteLocatorBuilder`) — se prefirió
+código sobre YAML para que el compilador valide la sintaxis de cada ruta y
+filtro, en vez de descubrir un typo recién en tiempo de ejecución. El
+`application.yml` del Gateway solo tiene configuración (CORS, puertos,
+umbrales del Circuit Breaker), no las rutas en sí.
+
+## 🔌 Circuit Breaker sobre Payment
+
+Si `payment-service` está caído, lento, o falla por encima del umbral
+configurado (`failure-rate-threshold: 50` sobre una ventana de 10 llamadas),
+el Gateway deja de reenviarle tráfico y responde inmediatamente con `503`
+vía `FallbackController`, en vez de dejar al cliente esperando un timeout.
+
+Estado del breaker en vivo: `http://localhost:8000/actuator/circuitbreakers`.
+
+Detalle completo de la relación entre este Circuit Breaker y la
+compensación del Saga (son mecanismos de resiliencia distintos, en capas
+distintas) en `docs/session-07-evaluation.md`.
+
+## 🧠 Decisiones de diseño de la Session VII
+
+### ¿Por qué el Saga sigue llamando a Payment directo, sin pasar por el Gateway?
+
+El API Gateway resuelve tráfico **norte-sur** (cliente externo → sistema).
+La llamada `SagaOrchestrator → PaymentServiceClient` es **este-oeste**
+(servicio → servicio, interna al sistema) — pasarla por el Gateway no
+aportaría nada y agregaría un salto de red innecesario. Ver
+`docs/session-07-evaluation.md` para el detalle completo.
+
+### ¿Por qué Circuit Breaker solo en la ruta de Payment?
+
+Las rutas hacia el monolito no lo necesitan tanto: si el monolito cae, cae
+todo el sistema igual (Inventory, Booking y Saga viven ahí). Payment, en
+cambio, es un fallo aislado real — el sistema puede seguir funcionando
+parcialmente (buscar habitaciones, por ejemplo) aunque Payment esté caído.
 
 ### Trade-off
 
-**Ganancia:** aislamiento de datos, despliegue independiente y posibilidad de
-escalar Payment por separado.
+**Ganancia:** el frontend (y cualquier cliente futuro — app mobile, un
+partner externo) tiene un único endpoint estable, sin importar cuántos
+servicios haya detrás ni cómo cambien sus URLs internas. Resiliencia
+explícita ante la caída del componente más nuevo del sistema.
 
-**Costo:** comunicación de red, configuración distribuida, dos ciclos de
-despliegue, observabilidad adicional y nuevos puntos de fallo.
+**Costo:** un deployable más para operar, un salto de red adicional en cada
+request del cliente, y un nuevo punto único de falla (si el Gateway cae,
+cae el acceso a todo el sistema) — que en un entorno productivo se mitiga
+corriendo múltiples réplicas del Gateway detrás de un load balancer, fuera
+del alcance de este módulo.
+
+# ☁️ Session VIII — Cloud-Native Operations & Selection: CQRS
+
+## 🎯 Actividad implementada
+
+*Split Read & Write Models (CQRS).*
+
+La búsqueda de disponibilidad pasa a utilizar un **read model** denormalizado,
+separado del modelo JPA de escritura. El read model se actualiza de forma
+asíncrona desde eventos de Booking mediante RabbitMQ.
+
+### 🧩 Separación implementada
+
+```text
+                         QUICKSTAY POSTGRESQL
+                ┌─────────────────────────────────┐
+COMMANDS        │  quickstay_write                │
+──────────────► │  Room / Hotel / Reservation     │
+                │  Guest / Saga state              │
+                └──────────────┬──────────────────┘
+                               │
+                         Domain Event
+                               │
+                               ▼
+                         🐰 RabbitMQ
+                               │
+                         Projection
+                               │
+                               ▼
+                ┌─────────────────────────────────┐
+QUERIES         │  quickstay_read                 │
+──────────────► │  Availability projections       │
+                └─────────────────────────────────┘
+
+POST /api/sagas/bookings → WRITE
+GET  /api/rooms/search   → READ
+```
+
+### 📨 Eventos de proyección
+
+| Evento | Routing key | Inventory | Notification |
+|---|---|---|---|
+| `RESERVATION_PENDING_PAYMENT` | `reservation.pending-payment` | Actualiza disponibilidad | No |
+| `RESERVATION_CONFIRMED` | `reservation.confirmed` | Actualiza disponibilidad | Sí |
+| `RESERVATION_CANCELLED` | `reservation.cancelled` | Libera disponibilidad | Sí |
+
+El evento `PENDING_PAYMENT` es necesario porque el Saga bloquea la habitación
+mientras procesa el pago. Así, el read model no muestra una habitación como
+disponible durante ese intervalo.
+
+## 📈 Selección arquitectónica según carga
+
+QuickStay tiene un perfil donde las búsquedas de disponibilidad pueden ser muy
+superiores a las escrituras. CQRS permite optimizar ese camino sin convertir
+todo el sistema en microservicios.
+
+- **Lectura:** modelo denormalizado, índices orientados a ciudad/precio y fechas.
+- **Escritura:** modelo normalizado y transaccional, autoridad anti-overbooking.
+- **Actualización:** asíncrona mediante RabbitMQ.
+- **Consistencia:** eventual en la lectura; transaccional en la escritura crítica.
+
+### Trade-off
+
+**Ganancia:** lecturas más simples, menor acoplamiento cross-domain y una ruta
+clara hacia escalado independiente del read side.
+
+**Costo:** dos modelos que mantener, propagación asíncrona y necesidad futura de
+observabilidad/rebuild de proyecciones.
+
+No se agregó una segunda base física ni autoscaling real: hacerlo ahora
+aumentaría la complejidad operativa sin estar justificado por el alcance de la
+actividad.
+
+## 🧪 Evidencia de la actividad
+
+1. RabbitMQ debe mostrar la cola `inventory.room-availability-projection` con
+   consumidor activo.
+2. Una reserva confirmada genera el evento `RESERVATION_CONFIRMED`.
+3. Inventory registra en logs `[CQRS] Read model actualizado`.
+4. Una nueva búsqueda para las mismas fechas deja de mostrar la habitación
+   después de que la proyección procese el evento.
+5. Una compensación del Saga genera `PENDING_PAYMENT → CANCELLED` en el read
+   model y vuelve a liberar la habitación.
+
+Detalle completo en [`docs/session-08-evaluation.md`](docs/session-08-evaluation.md).
+
+## 🎬 Demo de Session VIII — CQRS y resiliencia
+
+### 1. Verificar el split Read/Write
+
+En PostgreSQL se deben observar los schemas:
+
+```sql
+SELECT schema_name
+FROM information_schema.schemata
+WHERE schema_name IN ('quickstay_write', 'quickstay_read');
+```
+
+Y las tablas:
+
+```sql
+SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema IN ('quickstay_write', 'quickstay_read')
+ORDER BY table_schema, table_name;
+```
+
+Debe verse el estado transaccional en `quickstay_write` y las proyecciones en
+`quickstay_read`.
+
+### 2. Demostrar CQRS con una reserva
+
+1. Buscar una habitación desde el frontend.
+2. Crear una reserva.
+3. Mostrar el evento en RabbitMQ.
+4. Mostrar que `inventory.room-availability-projection` consume el evento.
+5. Repetir la búsqueda y comprobar que el READ model refleja la reserva después
+   de procesar la proyección.
+
+### 3. Demostrar consistencia eventual
+
+Detener únicamente RabbitMQ:
+
+```bash
+docker compose stop rabbitmq
+```
+
+El WRITE side y el READ side dejan de recibir sincronización por eventos mientras
+el broker está caído. La búsqueda puede mostrar temporalmente un estado anterior
+del READ model.
+
+Recuperar:
+
+```bash
+docker compose start rabbitmq
+```
+
+Verificar conexiones, colas y consumidores en `http://localhost:15672` y revisar:
+
+```bash
+docker compose logs -f backend
+```
+
+> Una cola durable puede conservar mensajes que ya fueron aceptados por RabbitMQ.
+> CQRS por sí solo no garantiza recuperar un evento que nunca llegó al broker;
+> para esa garantía se necesitaría un Transactional Outbox.
+
+### 4. Demostrar resiliencia del Payment Service
+
+Detener solamente Payment:
+
+```bash
+docker compose stop payment-service
+```
+
+Intentar una reserva/pago y observar el comportamiento del Saga y del Circuit
+Breaker del Gateway. Recuperar:
+
+```bash
+docker compose start payment-service
+```
+
+## 🧠 Decisiones de diseño de la Session VIII
+
+### ¿Por qué CQRS y no otra extracción de microservicio?
+
+Porque el objetivo de esta sesión es separar responsabilidades de lectura y
+escritura según el perfil de carga. Extraer Inventory completo sería un cambio
+de deployment adicional y no es necesario para demostrar el patrón.
+
+### ¿Por qué mantener una sola PostgreSQL?
+
+El read model y el write model son lógicamente distintos, pero compartir la
+infraestructura persistente mantiene bajo el coste operativo. Una base de lectura
+independiente queda como evolución futura si el volumen lo justifica.
+
+### ¿CQRS elimina el anti-overbooking?
+
+No. La reserva continúa validándose contra el write model. El read model es una
+herramienta de consulta, no la autoridad para confirmar una reserva.
 
 # 📚 Documentación por sesión
 
 | Sesión | Arquitectura / foco | Documentación |
 |---|---|---|
-| II | Layered Monolith | `docs/session-02-evaluation.md` |
 | III | Modular Monolith + Bounded Contexts | `docs/session-03-evaluation.md` |
 | IV | Enterprise Integration & Messaging | `docs/session-04-domain-events.md` · `docs/session-04-evaluation.md` |
 | V | Service-Based & Orchestrated Styles — Saga | `docs/session-05-saga-evaluation.md` |
 | VI | Microservices Deep Dive — Payment extraction + Data Isolation | `docs/session-06-microservices-extraction.md` |
+| VII | Advanced Distributed Architectures — API Gateway + Circuit Breaker | `docs/session-07-evaluation.md` |
+| VIII | Cloud-Native Operations & Selection — CQRS | `docs/session-08-evaluation.md` |
 
 ## 🚀 Cómo levantar el entorno local
 
@@ -824,6 +724,19 @@ despliegue, observabilidad adicional y nuevos puntos de fallo.
 > puede ocupar el puerto 5432. Este proyecto usa los puertos **5433** y **5434**
 > en el host para las dos bases PostgreSQL aisladas (ver `infra/docker-compose.yml`).
 
+> **Importante para Session VIII:** como la separación CQRS cambia el esquema de
+> persistencia, si ya tenías la base de una Session anterior en el volumen Docker,
+> para una ejecución limpia de esta versión usa una vez:
+>
+> ```bash
+> docker compose down -v
+> docker compose up -d
+> ```
+>
+> Después de esa inicialización, para cambios normales de código no necesitas borrar
+> los volúmenes. Puedes reconstruir solo el servicio afectado con
+> `docker compose up -d --build backend`.
+>
 ```bash
 cd infra
 docker compose up -d
@@ -837,18 +750,18 @@ Credenciales:
 
 Management UI de RabbitMQ: `http://localhost:15672` — útil para ver el
 exchange `quickstay.reservation-events` y la cola
-`notification.reservation-events` en tiempo real.
+`notification.reservation-events` y `inventory.room-availability-projection` en tiempo real.
 
-### 2. Backend
+### 2. Backend (monolito)
 
 ```bash
 cd backend
 ./gradlew bootRun        # Windows: .\gradlew.bat bootRun
 ```
 
-Al arrancar, Flyway crea el schema y carga datos demo automáticamente
-(`V1__init_schema.sql`, `V2__seed_demo_data.sql`). La API queda en
-`http://localhost:8080`.
+Al arrancar, Flyway crea `quickstay_write`, `quickstay_read` y carga los datos demo automáticamente.
+`quickstay_write` contiene el WRITE model y `quickstay_read` contiene las proyecciones CQRS. En ejecución local con `bootRun`, la API queda en `http://localhost:8080`.
+Cuando se ejecuta mediante Docker Compose, queda expuesta en `http://localhost:8082`.
 
 **Nota:** el proceso queda corriendo en foreground (no "termina" — la barra de
 progreso de Gradle se queda fija, eso es normal). Confirmá que levantó bien
@@ -859,14 +772,44 @@ Endpoints disponibles:
 GET  /api/rooms/search?city={city}&checkIn={yyyy-MM-dd}&checkOut={yyyy-MM-dd}&maxPrice={decimal}
 POST /api/reservations
 POST /api/reservations/{id}/cancel
+POST /api/sagas/bookings
+GET  /api/sagas/bookings/{sagaId}
 ```
 
-Ejemplo:
-```
-http://localhost:8080/api/rooms/search?city=La%20Paz&checkIn=2026-09-01&checkOut=2026-09-05&maxPrice=600
+### 3. Payment Service (microservicio)
+
+En otra terminal:
+
+```bash
+cd payment-service
+./gradlew bootRun        # Windows: .\gradlew.bat bootRun
 ```
 
-### 3. Frontend
+Queda disponible en `http://localhost:8081`. El backend lo llama
+directamente vía `PAYMENT_SERVICE_URL` (default `http://127.0.0.1:8081`) —
+no hace falta configurar nada extra si corrés todo en `localhost`.
+
+### 4. API Gateway (Sesión VII — punto de entrada único)
+
+En otra terminal:
+
+```bash
+cd api-gateway
+./gradlew bootRun        # Windows: .\gradlew.bat bootRun
+```
+
+Queda disponible en `http://localhost:8000`. A partir de esta sesión, es el
+**único** endpoint que el frontend (y cualquier cliente externo) debería
+usar — enruta automáticamente hacia `backend` o `payment-service` según el
+path (ver `docs/session-07-evaluation.md`).
+
+Confirmá que las rutas se registraron bien:
+```
+http://localhost:8000/                          → info de cortesía + mapa de rutas
+http://localhost:8000/actuator/gateway/routes    → detalle real de rutas registradas
+```
+
+### 5. Frontend
 
 ```bash
 cd frontend/quickstay-web
@@ -874,15 +817,30 @@ npm install
 npm start
 ```
 
-Se levanta en `http://localhost:4200`, ya conectado al backend
-(`src/environments/environment.ts`).
+Se levanta en `http://localhost:4200`, ya conectado al **Gateway**
+(`src/environments/environment.ts` → `http://localhost:8000`), no al
+backend directamente.
 
-### 4. Verificar
+### 6. Verificar
 
-- `http://localhost:4200` → formulario de búsqueda y listado de habitaciones
-  disponibles, con opción de reservar.
-- `http://localhost:8080/api/rooms/search?...` → JSON con habitaciones (ver
-  ejemplo arriba).
+- `http://localhost:4200` → formulario de búsqueda, reserva y pago (Saga),
+  todo pasando por el Gateway.
+- `http://localhost:8000/api/rooms/search?...` → JSON con habitaciones,
+  enrutado por el Gateway hacia el backend (ver ejemplo abajo).
+- `http://localhost:8000/actuator/circuitbreakers` → estado del Circuit
+  Breaker de la ruta de Payment.
+- RabbitMQ → `inventory.room-availability-projection` → verificar que el
+  consumidor CQRS esté activo.
+
+Ejemplo de búsqueda vía Gateway:
+```
+http://localhost:8000/api/rooms/search?city=La%20Paz&checkIn=2026-09-01&checkOut=2026-09-05&maxPrice=600
+```
+
+> En ejecución local con `bootRun`, el backend usa `8080`; con Docker Compose se
+> expone en `8082`. Payment usa `8081` en ambos casos. Los backends pueden
+> alcanzarse directamente para debugging puntual, pero el flujo real del cliente
+> sigue pasando por el Gateway (`8000`).
 
 ---
 
@@ -893,9 +851,14 @@ Se levanta en `http://localhost:4200`, ya conectado al backend
 | `FATAL: la autentificación password falló` | Volumen de Postgres viejo con otras credenciales, o conflicto de puerto con un Postgres nativo | `docker compose down -v && docker compose up -d` |
 | `Unable to determine Dialect without JDBC metadata` | Backend no logra conectar a la DB (mensaje real de Hibernate queda oculto) | Verificar `docker ps` y el puerto en `application.yml` |
 | Barra de Gradle se queda en 80-90% | Comportamiento normal de `bootRun` — el proceso queda vivo sirviendo peticiones | Buscar `Started QuickstayApplication` en el log |
-| `blocked by CORS policy` en la consola del navegador, request marcado `net::ERR_FAILED` (pero sin error en el log del backend) | El browser bloquea la respuesta porque el backend no declara `http://localhost:4200` como origen permitido | Ya resuelto vía `shared/config/CorsConfig.java` — si cambiás el puerto del frontend, actualizá `allowedOrigins` ahí |
+| `blocked by CORS policy` con `Access-Control-Allow-Origin` duplicado | CORS está declarado en más de una capa | Desde Sesión VII, CORS se centraliza en `api-gateway/src/main/resources/application.yml`; el backend no agrega otro `Access-Control-Allow-Origin` |
 | Backend no arranca: `Connection refused` apuntando a `5672` | RabbitMQ no está corriendo | `docker ps` y confirmar `quickstay-rabbitmq` está `Up`; si no, `docker compose up -d` desde `infra/` |
 | No aparece el log `[NOTIFICATION] Enviando email...` tras reservar | El listener no está conectado a la cola, o el mensaje no llegó | Revisar `http://localhost:15672` → pestaña *Queues* → `notification.reservation-events`: si el mensaje quedó "Ready" sin consumir, el backend probablemente no levantó bien el `@RabbitListener` (ver log al arrancar) |
+| El frontend tira errores de red / CORS después de esta sesión | Sigue apuntando al backend directo (`8080`) en vez del Gateway (`8000`) | Confirmar `frontend/quickstay-web/src/environments/environment.ts` → `apiUrl: 'http://localhost:8000'`, y que `api-gateway` esté corriendo |
+| `503 Service Unavailable` al pagar, con mensaje de `FallbackController` | El Circuit Breaker de la ruta de Payment está abierto — `payment-service` está caído o viene fallando por encima del umbral | Confirmar `payment-service` está `Up` (`docker ps` o la terminal donde corre); revisar `http://localhost:8000/actuator/circuitbreakers` |
+| La búsqueda devuelve habitaciones recién reservadas durante unos instantes | La proyección CQRS es eventualmente consistente | Revisar `inventory.room-availability-projection` y los logs `[CQRS]`; esperar el procesamiento del evento. La validación anti-overbooking sigue en el write model |
+| No aparece `inventory.room-availability-projection` en RabbitMQ | El backend no levantó el `@RabbitListener` o RabbitMQ no estaba disponible al arrancar | Revisar `docker compose logs backend`, confirmar `Connections`/`Consumers` en RabbitMQ y reconstruir solo `backend` con `docker compose up -d --build backend` |
+| El Gateway arranca pero las rutas no aparecen en `/actuator/gateway/routes` | `spring-cloud-starter-gateway` no se resolvió bien, o `application.yml` tiene un error de indentación YAML | Revisar el log de arranque del Gateway por errores de `RouteDefinition`; validar la indentación de `spring.cloud.gateway.routes` |
 
 ---
 
@@ -992,5 +955,52 @@ git push -u origin session-06-microservices-extraction
 git checkout main
 git merge --no-ff session-06-microservices-extraction -m "merge: session 06 microservices deep dive - payment extraction"
 git tag -a v0.6-microservices -m "Session VI: Microservices Deep Dive - Payment Extraction"
+git push origin main --tags
+```
+
+Sesión VII:
+
+```bash
+git checkout -b session-07-api-gateway
+git add .
+git commit -m "feat: add API Gateway as single entry point
+
+- add api-gateway module (Spring Cloud Gateway, port 8000)
+- route /api/rooms, /api/reservations, /api/sagas to backend
+- route /api/payments to payment-service with Circuit Breaker (Resilience4j)
+- add FallbackController for payment-service outages
+- centralize CORS at the gateway level
+- update frontend environment.ts to target the gateway instead of backend
+- add Session VII architecture documentation"
+git push -u origin session-07-api-gateway
+
+git checkout main
+git merge --no-ff session-07-api-gateway -m "merge: session 07 advanced distributed architectures - API gateway"
+git tag -a v0.7-api-gateway -m "Session VII: Advanced Distributed Architectures - API Gateway"
+git push origin main --tags
+```
+
+
+Sesión VIII:
+
+```bash
+git checkout -b session-08-cqrs
+git add .
+git commit -m "feat: split read and write models with CQRS
+
+- add denormalized Inventory read models for availability queries
+- switch room search from JPA write model to JdbcTemplate read repository
+- publish pending-payment events so the read model respects Saga reservations
+- add RabbitMQ Inventory projection queue and idempotent projection consumer
+- keep Notification subscribed only to confirmed/cancelled events
+- add Flyway V5 to create explicit quickstay_read projections
+- separate QuickStay persistence into quickstay_write and quickstay_read schemas
+- route availability queries exclusively to the READ schema
+- document Session VIII architecture, load profile, CQRS trade-offs and failure demo"
+git push -u origin session-08-cqrs
+
+git checkout main
+git merge --no-ff session-08-cqrs -m "merge: session 08 cloud-native operations and selection - CQRS"
+git tag -a v0.8-cqrs -m "Session VIII: Cloud-Native Operations & Selection - CQRS"
 git push origin main --tags
 ```

@@ -22,6 +22,7 @@ public record ReservationIntegrationEvent(
         LocalDate checkOut,
         Instant occurredAt
 ) {
+    public static final String TYPE_PENDING_PAYMENT = "RESERVATION_PENDING_PAYMENT";
     public static final String TYPE_CONFIRMED = "RESERVATION_CONFIRMED";
     public static final String TYPE_CANCELLED = "RESERVATION_CANCELLED";
 }
